@@ -1,0 +1,24 @@
+{
+  "id": "fixture-001",
+  "title": "Sixty Second Sample",
+  "sourceUrl": "https://example.invalid/audio/sample",
+  "sourceName": "sample.m4a",
+  "createdAt": "2026-11-18T15:30:00.000Z",
+  "duration": 60,
+  "engine": "WhisperKit 1.1.1",
+  "model": "base.en",
+  "text": "Original machine transcript.",
+  "correctedText": "Corrected transcript.",
+  "segments": [
+    {
+      "start": 0,
+      "end": 4.25,
+      "text": "Original machine"
+    },
+    {
+      "start": 4.25,
+      "end": 7.5,
+      "text": " transcript."
+    }
+  ]
+}

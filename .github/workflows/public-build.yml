@@ -1,0 +1,227 @@
+name: Video Intelligence Public iOS Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      dependency_mode:
+        description: Bootstrap exports a new lockfile; locked requires the reviewed lockfile committed in this snapshot.
+        required: true
+        type: choice
+        default: locked
+        options:
+          - locked
+          - bootstrap
+
+permissions:
+  contents: read
+
+concurrency:
+  group: video-intelligence-public-ios-validation
+  cancel-in-progress: false
+
+jobs:
+  validate-and-package:
+    name: Validate and package unsigned ARM64 app
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      PROJECT_DIR: .
+      PROJECT_PATH: VideoIntelligenceNative.xcodeproj
+      SCHEME: VideoIntelligenceNative
+      DERIVED_DATA: DerivedData
+      ARTIFACTS_DIR: Artifacts
+      EXPECTED_PACKAGE_VERSION: 1.1.1
+      EXPECTED_PACKAGE_REVISION: 1bbc57cb7fe6410248a685b1c5a3c6d56adc2ed4
+    steps:
+      - name: Check out selected source without credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Audit public snapshot disclosure boundary
+        shell: bash
+        run: bash scripts/audit-public-snapshot.sh
+
+      - name: Record toolchain inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$ARTIFACTS_DIR"
+          {
+            sw_vers
+            xcodebuild -version
+            xcodebuild -showsdks
+            swift --version
+          } | tee "$ARTIFACTS_DIR/toolchain.log"
+
+      - name: Install verified XcodeGen
+        shell: bash
+        run: bash scripts/install-xcodegen.sh
+
+      - name: Generate Xcode project
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodegen generate --spec "$PROJECT_DIR/project.yml" 2>&1 | tee "$ARTIFACTS_DIR/xcodegen.log"
+          test -d "$PROJECT_PATH"
+
+      - name: Validate targets and shared scheme
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -project "$PROJECT_PATH" -list 2>&1 | tee "$ARTIFACTS_DIR/project-list.log"
+          grep -Fq "$SCHEME" "$ARTIFACTS_DIR/project-list.log"
+          grep -Fq VideoIntelligenceNativeTests "$ARTIFACTS_DIR/project-list.log"
+
+      - name: Prepare reviewed lockfile
+        if: inputs.dependency_mode == 'locked'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git ls-files --error-unmatch Package.resolved
+          LOCK_DEST="$PROJECT_PATH/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+          mkdir -p "$(dirname "$LOCK_DEST")"
+          cp Package.resolved "$LOCK_DEST"
+
+      - name: Resolve Swift packages for bootstrap review
+        if: inputs.dependency_mode == 'bootstrap'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e Package.resolved
+          xcodebuild -resolvePackageDependencies \
+            -project "$PROJECT_PATH" \
+            -scheme "$SCHEME" \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/SourcePackages" \
+            2>&1 | tee "$ARTIFACTS_DIR/package-resolution.log"
+
+      - name: Resolve only from reviewed lockfile
+        if: inputs.dependency_mode == 'locked'
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -resolvePackageDependencies \
+            -project "$PROJECT_PATH" \
+            -scheme "$SCHEME" \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/SourcePackages" \
+            -onlyUsePackageVersionsFromResolvedFile \
+            2>&1 | tee "$ARTIFACTS_DIR/package-resolution.log"
+
+      - name: Verify and export genuine package lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          GENERATED_LOCK="$PROJECT_PATH/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+          bash scripts/verify-package-resolved.sh \
+            "$GENERATED_LOCK" \
+            "$EXPECTED_PACKAGE_VERSION" \
+            "$EXPECTED_PACKAGE_REVISION"
+          if [[ "${{ inputs.dependency_mode }}" == "locked" ]]; then
+            cmp Package.resolved "$GENERATED_LOCK"
+          fi
+          cp "$GENERATED_LOCK" "$ARTIFACTS_DIR/Package.resolved"
+
+      - name: Select an available iPhone simulator
+        shell: bash
+        run: bash scripts/select-simulator.sh
+
+      - name: Run native contract and timestamp tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild test \
+            -project "$PROJECT_PATH" \
+            -scheme "$SCHEME" \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
+            -destination-timeout 120 \
+            -derivedDataPath "$DERIVED_DATA" \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/SourcePackages" \
+            -disableAutomaticPackageResolution \
+            -onlyUsePackageVersionsFromResolvedFile \
+            -resultBundlePath "$ARTIFACTS_DIR/NativeTests.xcresult" \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee "$ARTIFACTS_DIR/native-tests.log"
+
+      - name: Build unsigned ARM64 iPhone application
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild build \
+            -project "$PROJECT_PATH" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$DERIVED_DATA" \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/SourcePackages" \
+            -disableAutomaticPackageResolution \
+            -onlyUsePackageVersionsFromResolvedFile \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY='' \
+            2>&1 | tee "$ARTIFACTS_DIR/device-build.log"
+
+      - name: Verify unsigned application and package IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$DERIVED_DATA/Build/Products/Release-iphoneos/VideoIntelligence.app"
+          STAGED_IPA="$RUNNER_TEMP/VideoIntelligence-unsigned.ipa"
+          bash scripts/verify-and-package-app.sh "$APP" "$STAGED_IPA" \
+            2>&1 | tee "$ARTIFACTS_DIR/app-verification.log"
+          test -f "$STAGED_IPA"
+
+      - name: Generate build provenance and release artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          STAGED_IPA="$RUNNER_TEMP/VideoIntelligence-unsigned.ipa"
+          PROVENANCE_TMP="$RUNNER_TEMP/build-provenance.txt"
+          SUMS_TMP="$RUNNER_TEMP/SHA256SUMS"
+          IPA_SHA256="$(shasum -a 256 "$STAGED_IPA" | awk '{print $1}')"
+          LOCK_SHA256="$(shasum -a 256 "$ARTIFACTS_DIR/Package.resolved" | awk '{print $1}')"
+          {
+            echo "repository=$GITHUB_REPOSITORY"
+            echo "commit=$GITHUB_SHA"
+            echo "ref=$GITHUB_REF"
+            echo "run_id=$GITHUB_RUN_ID"
+            echo "run_attempt=$GITHUB_RUN_ATTEMPT"
+            echo "dependency_mode=${{ inputs.dependency_mode }}"
+            echo "runner_image=macos-15"
+            echo "developer_dir=$DEVELOPER_DIR"
+            echo "simulator_name=$SIMULATOR_NAME"
+            echo "simulator_runtime=$SIMULATOR_RUNTIME"
+            echo "xcodegen_version=2.47.0"
+            echo "argmax_oss_swift_version=$EXPECTED_PACKAGE_VERSION"
+            echo "argmax_oss_swift_revision=$EXPECTED_PACKAGE_REVISION"
+            echo "ipa_file=VideoIntelligence-unsigned.ipa"
+            echo "ipa_sha256=$IPA_SHA256"
+            echo "package_resolved_sha256=$LOCK_SHA256"
+            echo "workflow_sha256=$(shasum -a 256 .github/workflows/public-build.yml | awk '{print $1}')"
+            echo "project_spec_sha256=$(shasum -a 256 project.yml | awk '{print $1}')"
+            echo "source_provenance_sha256=$(shasum -a 256 SOURCE_PROVENANCE.md | awk '{print $1}')"
+            xcodebuild -version | sed 's/^/xcode=/'
+          } > "$PROVENANCE_TMP"
+          PROVENANCE_SHA256="$(shasum -a 256 "$PROVENANCE_TMP" | awk '{print $1}')"
+          {
+            echo "$IPA_SHA256  VideoIntelligence-unsigned.ipa"
+            echo "$LOCK_SHA256  Package.resolved"
+            echo "$PROVENANCE_SHA256  build-provenance.txt"
+          } > "$SUMS_TMP"
+          cat "$PROVENANCE_TMP"
+          cp "$PROVENANCE_TMP" "$ARTIFACTS_DIR/build-provenance.txt"
+          cp "$SUMS_TMP" "$ARTIFACTS_DIR/SHA256SUMS"
+          cp "$STAGED_IPA" "$ARTIFACTS_DIR/VideoIntelligence-unsigned.ipa"
+
+      - name: Upload validation evidence and unsigned build
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: VideoIntelligence-public-build-${{ github.run_id }}-${{ github.run_attempt }}
+          path: Artifacts
+          if-no-files-found: error
+          retention-days: 7

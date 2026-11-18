@@ -1,0 +1,40 @@
+# Generated Apple project and build output
+VideoIntelligenceNative.xcodeproj/
+DerivedData/
+Artifacts/
+build/
+*.xcuserstate
+xcuserdata/
+*.xcresult
+*.ipa
+*.dSYM.zip
+
+# Signing material and secrets
+*.p12
+*.pfx
+*.mobileprovision
+*.cer
+*.key
+*.pem
+.env
+.env.*
+
+# Models, media, and transcripts
+models/
+private-media/
+transcripts/
+*.mlmodel
+*.mlmodelc
+*.onnx
+*.safetensors
+*.gguf
+*.mp3
+*.m4a
+*.wav
+*.mov
+*.mp4
+
+# Local metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
