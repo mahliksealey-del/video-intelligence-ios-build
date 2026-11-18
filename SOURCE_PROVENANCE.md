@@ -5,7 +5,7 @@
 - Audited source commit: `45d26fb94cf80b8b0a78dfc598ae670fce2deb5f`
 - Preserved release ancestor: `a22fbcd8725594519f8931b61856c026538a63fe`
 
-The native application sources, tests, fixture, project specification, and four build helpers were copied from the audited source commit. Public-only changes are limited to:
+The native application sources, tests, fixture, and four build helpers were copied from the audited source commit. The project specification was adapted for the public build and subsequently received two review corrections: Swift language mode `5` (rather than invalid `5.10`) and an explicit XcodeGen test-fixture resource entry. Public-only changes include:
 
 - neutral bundle identifier `com.example.videointelligence.nativeprototype`;
 - repository-root paths instead of the private repository's `NativePrototype/` prefix;

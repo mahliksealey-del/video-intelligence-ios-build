@@ -13,7 +13,7 @@ packages:
 
 settings:
   base:
-    SWIFT_VERSION: "5.10"
+    SWIFT_VERSION: "5"
     IPHONEOS_DEPLOYMENT_TARGET: "16.0"
 
 targets:
@@ -46,11 +46,11 @@ targets:
     type: bundle.unit-test
     platform: iOS
     sources:
-      - path: VideoIntelligenceNativeTests
-        excludes:
-          - Fixtures
-    resources:
+      - path: VideoIntelligenceNativeTests/TranscriptRecordContractTests.swift
+      - path: VideoIntelligenceNativeTests/TranscriptTimestampTests.swift
       - path: VideoIntelligenceNativeTests/Fixtures
+        type: folder
+        buildPhase: resources
     dependencies:
       - target: VideoIntelligenceNative
     settings:

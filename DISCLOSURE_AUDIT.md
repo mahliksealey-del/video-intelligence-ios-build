@@ -26,6 +26,10 @@
 - Personal bundle identifier: replaced with the neutral identifier `com.example.videointelligence.nativeprototype`.
 - `Package.resolved`: absent until the first authorized bootstrap run generates and verifies the genuine file.
 
+## Independent archive review (November 18, 2026)
+
+The portable source archive was independently inspected. The 23 tracked publication paths matched the allowlist, shell scripts passed Bash syntax checks, the public snapshot audit passed against a temporary fresh Git commit, and platform-independent Swift types passed `swiftc -typecheck` on Linux. The review corrected the project configuration's invalid `SWIFT_VERSION: "5.10"` value to Swift 5 language mode and made the JSON test-fixture resource inclusion explicit through XcodeGen `sources` / `buildPhase: resources`. These checks are not a substitute for macOS/Xcode compilation or iPhone device testing.
+
 ## Remaining publication review
 
 The owner must review the exact allowlist and this report before repository creation or the first public push. Native compilation and dependency graph completeness remain unverified until the separately authorized macOS runner execution.

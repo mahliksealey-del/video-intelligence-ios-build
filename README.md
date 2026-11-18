@@ -19,6 +19,10 @@ It is not a mirror of the private development repository and contains none of th
 
 The first separately authorized build uses `bootstrap`. After its runner-generated `Package.resolved` is reviewed and committed at the repository root, all later builds use the default `locked` mode. Locked runs fail unless the committed lockfile matches the resolver output exactly.
 
+## Static-review corrections
+
+Before the first hosted build, an independent source review corrected the `SWIFT_VERSION` build setting to `5` (the Swift 5 language mode) and specified the test fixture folder in XcodeGen's `sources` with `buildPhase: resources`. The original native source files remain unchanged; actual Xcode generation and test execution still require a macOS runner.
+
 ## Local limitations
 
 Windows can audit this snapshot but cannot compile native iOS code. GitHub runner compilation is authoritative. Simulator and unsigned-build success do not establish signing, installation, iOS 26.6.2 compatibility, on-device memory behavior, or transcription inference.
