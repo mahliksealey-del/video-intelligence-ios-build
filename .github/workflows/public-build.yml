@@ -123,6 +123,16 @@ jobs:
           fi
           cp "$GENERATED_LOCK" "$ARTIFACTS_DIR/Package.resolved"
 
+      - name: Verify generated build settings
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/verify-build-settings.sh \
+            "$PROJECT_PATH" \
+            "$SCHEME" \
+            "$ARTIFACTS_DIR/build-settings.json" \
+            2>&1 | tee "$ARTIFACTS_DIR/build-settings-preflight.log"
+
       - name: Select an available iPhone simulator
         shell: bash
         run: bash scripts/select-simulator.sh

@@ -34,4 +34,6 @@ Build #1 resolved and verified the dependency lock, generated the Xcode project,
 
 ## Remaining publication review
 
-The corrected snapshot still requires a separately authorized locked macOS run to verify native compilation, tests, and unsigned device packaging. This correction does not claim Build #2 success.
+Build #3 reached Swift test compilation and exposed a module-name mismatch: product/executable `VideoIntelligence` caused the app module to default to `VideoIntelligence`, while tests import target module `VideoIntelligenceNative`. The app now declares that module explicitly without renaming the product, and the workflow verifies all related generated settings before compilation.
+
+The corrected snapshot still requires locked macOS runner evidence for native tests and unsigned device packaging.
