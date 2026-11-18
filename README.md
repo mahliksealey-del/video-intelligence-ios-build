@@ -9,7 +9,7 @@ It is not a mirror of the private development repository and contains none of th
 - The workflow runs only through **Actions → Video Intelligence Public iOS Build → Run workflow**.
 - It uses the standard `macos-15` runner, Xcode 16.4, and integrity-verified XcodeGen 2.47.0.
 - Repository permissions are read-only and external GitHub actions are pinned to immutable commit SHAs.
-- The `WhisperKit` product is declared at exact Argmax OSS Swift version 1.1.1. Bootstrap mode verifies revision `1bbc57cb7fe6410248a685b1c5a3c6d56adc2ed4` and exports the genuine lockfile.
+- The `WhisperKit` product is locked to exact Argmax OSS Swift version 1.1.1 at revision `1bbc57cb7fe6410248a685b1c5a3c6d56adc2ed4`.
 - Native contract tests run on an iOS Simulator before an unsigned ARM64 device build is packaged.
 - The generated application is checked for architecture, metadata, unsigned state, prohibited media/model files, and provisioning profiles.
 - `VideoIntelligence-unsigned.ipa` is a Sideloadly signing input, not a directly installable application.
@@ -17,11 +17,11 @@ It is not a mirror of the private development repository and contains none of th
 
 ## Dependency modes
 
-The first separately authorized build uses `bootstrap`. After its runner-generated `Package.resolved` is reviewed and committed at the repository root, all later builds use the default `locked` mode. Locked runs fail unless the committed lockfile matches the resolver output exactly.
+Authorized bootstrap run `44351596420` generated and verified the genuine `Package.resolved`, recovered from artifact `14447624823`. It is committed at the repository root; all later builds use the default `locked` mode and fail unless the generated workspace lockfile matches it exactly.
 
 ## Static-review corrections
 
-Before the first hosted build, an independent source review corrected the `SWIFT_VERSION` build setting to `5` (the Swift 5 language mode) and specified the test fixture folder in XcodeGen's `sources` with `buildPhase: resources`. The original native source files remain unchanged; actual Xcode generation and test execution still require a macOS runner.
+Before the first hosted build, an independent source review corrected the `SWIFT_VERSION` build setting to `5` (the Swift 5 language mode) and specified the test fixture folder in XcodeGen's `sources` with `buildPhase: resources`. Build #1 then exposed XcodeGen's default test-host path using the target name instead of the preserved product name. The test target now explicitly uses `VideoIntelligence.app/VideoIntelligence` through `TEST_HOST` and `BUNDLE_LOADER`; the app name remains unchanged.
 
 ## Local limitations
 

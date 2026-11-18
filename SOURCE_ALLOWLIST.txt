@@ -2,6 +2,7 @@
 .github/workflows/public-build.yml
 .gitignore
 DISCLOSURE_AUDIT.md
+Package.resolved
 README.md
 SOURCE_ALLOWLIST.txt
 SOURCE_PROVENANCE.md

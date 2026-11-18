@@ -57,3 +57,5 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.videointelligence.nativeprototype.tests
         GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/VideoIntelligence.app/VideoIntelligence"
+        BUNDLE_LOADER: "$(TEST_HOST)"

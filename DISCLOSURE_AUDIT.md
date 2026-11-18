@@ -2,7 +2,7 @@
 
 ## Result
 
-**Prepared and locally audited; not published.** Every proposed tracked file is listed in `SOURCE_ALLOWLIST.txt`. The snapshot contains no detected credentials, signing assets, private media, personal transcripts, model weights, generated Apple projects, build output, local absolute paths, or private PWA source.
+**Published and locally audited.** Every tracked file is listed in `SOURCE_ALLOWLIST.txt`. The snapshot contains no detected credentials, signing assets, private media, personal transcripts, model weights, generated Apple projects, build output, local absolute paths, or private PWA source.
 
 ## Included
 
@@ -24,12 +24,14 @@
 - Generated `.xcodeproj`, DerivedData, test results, IPA files, and other build output: generated only by the runner and retained as short-lived artifacts.
 - Existing private-repository workflow: replaced by a public-root adaptation without private default-branch bootstrap logic.
 - Personal bundle identifier: replaced with the neutral identifier `com.example.videointelligence.nativeprototype`.
-- `Package.resolved`: absent until the first authorized bootstrap run generates and verifies the genuine file.
+- `Package.resolved`: the genuine file generated and verified by authorized bootstrap run `44351596420`, artifact `14447624823`, is included; no dependency source is vendored.
 
 ## Independent archive review (November 18, 2026)
 
 The portable source archive was independently inspected. The 23 tracked publication paths matched the allowlist, shell scripts passed Bash syntax checks, the public snapshot audit passed against a temporary fresh Git commit, and platform-independent Swift types passed `swiftc -typecheck` on Linux. The review corrected the project configuration's invalid `SWIFT_VERSION: "5.10"` value to Swift 5 language mode and made the JSON test-fixture resource inclusion explicit through XcodeGen `sources` / `buildPhase: resources`. These checks are not a substitute for macOS/Xcode compilation or iPhone device testing.
 
+Build #1 resolved and verified the dependency lock, generated the Xcode project, and reached native test invocation. It failed before compilation because XcodeGen derived a test host from the target name while the preserved app product/executable is `VideoIntelligence`. The public and private project specifications now explicitly set the correct test host without renaming the app.
+
 ## Remaining publication review
 
-The owner must review the exact allowlist and this report before repository creation or the first public push. Native compilation and dependency graph completeness remain unverified until the separately authorized macOS runner execution.
+The corrected snapshot still requires a separately authorized locked macOS run to verify native compilation, tests, and unsigned device packaging. This correction does not claim Build #2 success.
