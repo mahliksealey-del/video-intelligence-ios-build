@@ -48,7 +48,7 @@ struct TranscriptExporter {
             let attributes: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: 13), .foregroundColor: UIColor.label]
             for paragraph in displayText(transcript).components(separatedBy: "\n") {
                 let text = NSAttributedString(string: paragraph.isEmpty ? " " : paragraph, attributes: attributes)
-                let bounds = text.boundingRect(with: CGSize(width: 504, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
+                let bounds = text.boundingRect(with: CGSize(width: 504, height: CGFloat.greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
                 if y + bounds.height > 738 { context.beginPage(); y = 54 }
                 text.draw(in: CGRect(x: 54, y: y, width: 504, height: bounds.height + 4)); y += bounds.height + 14
             }
