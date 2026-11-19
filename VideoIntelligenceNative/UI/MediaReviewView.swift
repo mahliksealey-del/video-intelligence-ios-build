@@ -27,7 +27,26 @@ struct MediaReviewView: View {
                     else { Label("Source media was deleted; the transcript remains available.", systemImage: "doc.text").foregroundStyle(.secondary) }
                     actionPanel(item)
                     if let transcript { Divider(); TranscriptReaderView(transcript: transcript) { seekRequest = $0 } }
-                    else if item.status == .transcribing || item.status == .extractingAudio { ProgressView(item.status == .extractingAudio ? "Extracting audio…" : "Transcribing on this iPhone…", value: item.progress) }
+                    else if item.status == .transcribing || item.status == .extractingAudio {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ProgressView(item.status == .extractingAudio ? "Extracting audio…" : "Transcribing on this iPhone…")
+                            if library.activeTaskID == item.id, let startedAt = library.activeTaskStartedAt {
+                                TimelineView(.periodic(from: .now, by: 1)) { context in
+                                    let elapsed = max(0, context.date.timeIntervalSince(startedAt))
+                                    if let expected = library.estimatedTranscriptionSeconds(for: item) {
+                                        let remaining = expected - elapsed
+                                        Text(remaining > 0
+                                            ? "Elapsed \(MediaPlayerView.clock(elapsed)) · ~\(MediaPlayerView.clock(remaining)) left (calibrated estimate)"
+                                            : "Elapsed \(MediaPlayerView.clock(elapsed)) · running longer than previous estimate")
+                                            .font(.caption).foregroundStyle(.secondary)
+                                    } else {
+                                        Text("Elapsed \(MediaPlayerView.clock(elapsed)) · calibrating from first completed transcription")
+                                            .font(.caption).foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }.padding()
             }
         }
