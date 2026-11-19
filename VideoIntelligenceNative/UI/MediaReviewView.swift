@@ -11,6 +11,8 @@ struct MediaReviewView: View {
     @State private var editing = false
     @State private var shareURL: URL?
     @State private var exportFile: MediaExportFile?
+    @State private var stagedExportURL: URL?
+    @State private var stagedShareURL: URL?
     @State private var savedToPhotos = false
     @State private var confirmDelete = false
 
@@ -64,7 +66,7 @@ struct MediaReviewView: View {
             Text("This video was added to your iPhone Photos library.")
         }
         .sheet(isPresented: $editing) { if let item, let transcript { TranscriptEditorView(item: item, initialText: transcript.correctedText ?? transcript.text) { text in self.transcript = try await library.saveCorrection(text, for: item) } } }
-        .sheet(isPresented: Binding(get: { shareURL != nil }, set: { if !$0 { shareURL = nil } })) { if let shareURL { ShareSheet(items: [shareURL]) } }
+        .sheet(isPresented: Binding(get: { shareURL != nil }, set: { if !$0 { shareURL = nil } }), onDismiss: { cleanupShareFile() }) { if let shareURL { ShareSheet(items: [shareURL]) } }
         .confirmationDialog("Delete this library item?", isPresented: $confirmDelete, titleVisibility: .visible) { Button("Delete Item", role: .destructive) { if let item { Task { await library.deleteItem(item) } } }; Button("Cancel", role: .cancel) {} }
     }
 
@@ -111,12 +113,14 @@ struct MediaReviewView: View {
 
     private func exportMediaToFiles(_ item: MediaLibraryItem) {
         prepareMediaExport(item) { url in
+            stagedExportURL = url
             exportFile = MediaExportFile(url: url)
         }
     }
 
     private func shareMedia(_ item: MediaLibraryItem) {
         prepareMediaExport(item) { url in
+            stagedShareURL = url
             shareURL = url
         }
     }
@@ -144,10 +148,18 @@ struct MediaReviewView: View {
     }
 
     private func cleanupExportFile() {
-        if let url = exportFile?.url {
+        if let url = stagedExportURL {
             try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
         }
+        stagedExportURL = nil
         exportFile = nil
+    }
+
+    private func cleanupShareFile() {
+        if let url = stagedShareURL {
+            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+        }
+        stagedShareURL = nil
     }
 
     private func prepareMediaExport(_ item: MediaLibraryItem, ready: @escaping @MainActor (URL) -> Void) {
