@@ -42,12 +42,13 @@ while IFS= read -r bundle; do
   fi
 done < <(find "$APP_PATH" \( -type d \( -name '*.framework' -o -name '*.appex' \) -o -type f -name '*.dylib' \) -print)
 
-if find "$APP_PATH" \( \
+UNEXPECTED_BUNDLE_FILE="$(find "$APP_PATH" \( \
   -name '*.mlmodel' -o -name '*.mlmodelc' -o -name '*.onnx' -o \
   -name '*.safetensors' -o -name '*.gguf' -o -name '*.mp3' -o \
   -name '*.m4a' -o -name '*.wav' -o -name '*.mov' -o -name '*.mp4' \
-\) -print -quit | grep -q .; then
-  echo 'Unexpected model weight or private-media-like file found in application bundle.' >&2
+\) -print -quit)"
+if [[ -n "$UNEXPECTED_BUNDLE_FILE" ]]; then
+  echo "Unexpected model weight or private-media-like file in application bundle: ${UNEXPECTED_BUNDLE_FILE#"$APP_PATH"/}" >&2
   exit 1
 fi
 
