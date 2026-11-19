@@ -18,7 +18,7 @@ struct MediaLibraryItem: Codable, Identifiable, Equatable, Sendable {
     var title: String
     let kind: MediaKind
     let sourceFilename: String
-    let mediaRelativePath: String?
+    var mediaRelativePath: String?
     var audioRelativePath: String?
     var transcriptRelativePath: String?
     let importedAt: Date
