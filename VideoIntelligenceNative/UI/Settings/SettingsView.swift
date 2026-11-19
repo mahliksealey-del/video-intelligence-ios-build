@@ -3,28 +3,61 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject private var library: LibraryStore
     @Environment(\.dismiss) private var dismiss
+    @State private var shareURL: URL?
+    @State private var deleteModel: InstalledModel?
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Offline transcription model") {
-                    switch library.modelManager.state {
-                    case .notDownloaded: Button("Download base.en") { Task { await library.modelManager.download() } }
-                    case .downloading(let progress): ProgressView("Downloading base.en…", value: progress); Button("Keep App Open During Download") {}.disabled(true)
-                    case .ready: Label("base.en is ready for offline transcription", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-                    case .failed(let message): Text(message).foregroundStyle(.red); Button("Try Download Again") { Task { await library.modelManager.download() } }
-                    }
-                    Text("Model weights are downloaded only with your action, stored in Application Support, and excluded from device backup where supported.").font(.footnote).foregroundStyle(.secondary)
+                Section("Transcription profile") {
+                    Picker("Profile", selection: $library.modelManager.selectedProfile) { ForEach(TranscriptionProfile.allCases) { Text($0.title).tag($0) } }
+                    Text(library.modelManager.selectedProfile.detail).font(.footnote).foregroundStyle(.secondary)
+                }
+                Section("Speech models") {
+                    ForEach(Array(Set(TranscriptionProfile.allCases.map(\.model))).sorted(), id: \.self) { name in modelRow(name) }
+                    Text("Models download only with your action, remain in private Application Support, and are excluded from backup when supported.").font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Storage") {
                     LabeledContent("App storage", value: ByteCountFormatter.string(fromByteCount: library.storageBytes, countStyle: .file))
                     Button("Clear Regenerable Caches") { Task { await library.clearCaches() } }
-                    Text("Media: Files → On My iPhone → Video Intelligence. Models and the private library index stay in app-managed storage.").font(.footnote).foregroundStyle(.secondary)
+                    Text("Media remains in Files → On My iPhone → Video Intelligence. Clearing caches does not delete media, transcripts, or validated models.").font(.footnote).foregroundStyle(.secondary)
                 }
-                Section("Engine") { LabeledContent("WhisperKit", value: "1.1.1"); LabeledContent("Initial model", value: "base.en") }
+                Section("Diagnostics") {
+                    Button("Export Diagnostics") { Task { shareURL = await library.modelManager.diagnosticsURL() } }
+                    Text("The local diagnostic log records stage, time, error domain/code, underlying cause, and retry count. It excludes media, transcripts, cookies, and URLs.").font(.footnote).foregroundStyle(.secondary)
+                }
+                Section("Engine") { LabeledContent("WhisperKit", value: "1.1.1"); LabeledContent("Pinned revision", value: "1bbc57c…") }
             }
             .navigationTitle("Settings")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .sheet(isPresented: Binding(get: { shareURL != nil }, set: { if !$0 { shareURL = nil } })) { if let shareURL { ShareSheet(items: [shareURL]) } }
+            .confirmationDialog("Delete \(deleteModel?.name ?? "model")?", isPresented: Binding(get: { deleteModel != nil }, set: { if !$0 { deleteModel = nil } }), titleVisibility: .visible) {
+                Button("Delete Model", role: .destructive) { if let model = deleteModel { Task { try? await library.modelManager.delete(model.name); deleteModel = nil } } }
+                Button("Cancel", role: .cancel) { deleteModel = nil }
+            }
         }
+    }
+
+    @ViewBuilder private func modelRow(_ name: String) -> some View {
+        let model = library.modelManager.models[name]
+        VStack(alignment: .leading, spacing: 8) {
+            HStack { Text(name).font(.headline); Spacer(); if let model, model.bytes > 0 { Text(ByteCountFormatter.string(fromByteCount: model.bytes, countStyle: .file)).font(.caption).foregroundStyle(.secondary) } }
+            switch model?.state ?? .unavailable {
+            case .unavailable:
+                Button("Download") { library.modelManager.download(name) }
+            case .downloading(let progress):
+                ProgressView("Downloading…", value: progress)
+                Button("Cancel Download", role: .cancel) { library.modelManager.cancelDownload() }
+            case .downloaded:
+                ProgressView("Validating…")
+            case .validated:
+                HStack { Label("Validated", systemImage: "checkmark.seal.fill").foregroundStyle(.green); Spacer(); Button("Delete", role: .destructive) { deleteModel = model } }
+            case .loaded:
+                Label("Loaded", systemImage: "memorychip.fill").foregroundStyle(.green)
+            case .failed(let message):
+                Text(message).font(.footnote).foregroundStyle(.red)
+                Button("Retry") { library.modelManager.download(name) }
+            }
+        }.padding(.vertical, 4)
     }
 }

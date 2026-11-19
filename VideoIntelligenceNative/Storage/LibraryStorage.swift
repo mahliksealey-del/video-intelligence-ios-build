@@ -8,9 +8,9 @@ enum StorageError: LocalizedError {
 
 actor LibraryStorage {
     private let fileManager: FileManager
-    let documentsURL: URL
-    let applicationSupportURL: URL
-    let cachesURL: URL
+    nonisolated let documentsURL: URL
+    nonisolated let applicationSupportURL: URL
+    nonisolated let cachesURL: URL
 
     private var indexURL: URL { applicationSupportURL.appendingPathComponent("library-index.json") }
 

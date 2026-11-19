@@ -9,6 +9,36 @@ struct TranscriptionOutput: Sendable, Equatable {
     let segments: [TranscriptSegment]
     let engine: String
     let model: String
+    var performance: TranscriptionPerformance? = nil
+}
+
+struct TranscriptionPerformance: Codable, Sendable, Equatable {
+    let modelInitializationSeconds: Double
+    let inferenceSeconds: Double
+    let totalSeconds: Double
+    let wasWarm: Bool
+}
+
+enum TranscriptionProfile: String, Codable, CaseIterable, Identifiable, Sendable {
+    case fast
+    case balanced
+    case accurate
+
+    var id: String { rawValue }
+    var title: String { rawValue.capitalized }
+    var model: String {
+        switch self {
+        case .fast, .balanced: return "base.en"
+        case .accurate: return "small.en"
+        }
+    }
+    var detail: String {
+        switch self {
+        case .fast: return "base.en with minimal fallback"
+        case .balanced: return "base.en with English decoding and recovery"
+        case .accurate: return "small.en for higher quality; uses more storage and memory"
+        }
+    }
 }
 
 protocol Transcribing: Sendable {

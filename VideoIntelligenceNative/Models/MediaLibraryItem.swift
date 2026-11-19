@@ -18,6 +18,7 @@ struct MediaLibraryItem: Codable, Identifiable, Equatable, Sendable {
     var title: String
     let kind: MediaKind
     let sourceFilename: String
+    var sourceURL: String? = nil
     var mediaRelativePath: String?
     var audioRelativePath: String?
     var transcriptRelativePath: String?
@@ -28,6 +29,7 @@ struct MediaLibraryItem: Codable, Identifiable, Equatable, Sendable {
     var errorMessage: String?
 
     var segmentCount: Int = 0
+    var lastPerformance: TranscriptionPerformance? = nil
 }
 
 struct MediaLibraryIndex: Codable, Equatable, Sendable {

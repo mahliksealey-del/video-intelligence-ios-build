@@ -14,6 +14,8 @@ final class LibraryStore: ObservableObject {
     private let metadata = MediaMetadataReader()
     private let extractor: AudioExtracting
     private var operation: Task<Void, Never>?
+    private var enginePool: WhisperKitEnginePool?
+    private var engineProfile: TranscriptionProfile?
 
     init(storage: LibraryStorage = LibraryStorage(), extractor: AudioExtracting = AudioExtractor()) {
         self.storage = storage
@@ -30,14 +32,14 @@ final class LibraryStore: ObservableObject {
         } catch { errorMessage = error.localizedDescription }
     }
 
-    func importFile(_ url: URL) async {
+    func importFile(_ url: URL, sourceURL: String? = nil) async {
         do {
             guard let kind = MediaClassifier.classify(url) else { throw MediaImportError.unsupportedType }
             let id = UUID()
             let relative = try await storage.importMedia(from: url, kind: kind, id: id)
             let storedURL = try await storage.URLFor(relativePath: relative)
             let duration = try await metadata.duration(of: storedURL)
-            items.insert(MediaLibraryItem(id: id, title: url.deletingPathExtension().lastPathComponent, kind: kind, sourceFilename: url.lastPathComponent, mediaRelativePath: relative, importedAt: Date(), duration: duration, status: .ready, progress: 0), at: 0)
+            items.insert(MediaLibraryItem(id: id, title: url.deletingPathExtension().lastPathComponent, kind: kind, sourceFilename: url.lastPathComponent, sourceURL: sourceURL, mediaRelativePath: relative, importedAt: Date(), duration: duration, status: .ready, progress: 0), at: 0)
             try await persist()
         } catch { errorMessage = error.localizedDescription }
     }
@@ -56,9 +58,11 @@ final class LibraryStore: ObservableObject {
         operation = Task {
             do {
                 let url = try MediaURLValidator.validate(value)
+                let provider = MediaProvider.detect(url)
+                guard provider == .direct else { throw MediaDownloadError.providerRequiresExtractor(provider.rawValue) }
                 let local = try await MediaDownloader().download(from: url)
                 try Task.checkCancellation()
-                await importFile(local)
+                await importFile(local, sourceURL: url.absoluteString)
                 try? FileManager.default.removeItem(at: local)
             } catch is CancellationError { }
             catch { errorMessage = error.localizedDescription }
@@ -67,7 +71,7 @@ final class LibraryStore: ObservableObject {
 
     func transcribe(_ item: MediaLibraryItem) {
         guard let modelFolder = modelManager.modelFolder else {
-            errorMessage = "Download the base.en model in Settings before transcribing."
+            errorMessage = "Download and validate the \(modelManager.selectedProfile.model) model in Settings before transcribing."
             return
         }
         operation?.cancel()
@@ -91,10 +95,17 @@ final class LibraryStore: ObservableObject {
                 }
                 try Task.checkCancellation()
                 update(item.id) { $0.status = .transcribing; $0.progress = 0.35; $0.audioRelativePath = audioRelativePath }
-                let output = try await WhisperKitTranscriptionService(modelFolder: modelFolder).transcribe(TranscriptionRequest(audioFileURL: audioURL))
-                let record = TranscriptRecord(id: item.id.uuidString, title: item.title, sourceUrl: nil, sourceName: item.sourceFilename, createdAt: ISO8601DateFormatter().string(from: Date()), duration: item.duration, engine: output.engine, model: output.model, text: output.text, correctedText: nil, segments: output.segments)
+                let profile = modelManager.selectedProfile
+                if enginePool == nil || engineProfile != profile {
+                    if let enginePool { await enginePool.unload() }
+                    enginePool = WhisperKitEnginePool(profile: profile, modelFolder: modelFolder)
+                    engineProfile = profile
+                }
+                guard let enginePool else { throw ModelValidationError.incomplete(profile.model) }
+                let output = try await enginePool.transcribe(TranscriptionRequest(audioFileURL: audioURL))
+                let record = TranscriptRecord(id: item.id.uuidString, title: item.title, sourceUrl: item.sourceURL, sourceName: item.sourceFilename, createdAt: ISO8601DateFormatter().string(from: Date()), duration: item.duration, engine: output.engine, model: output.model, text: output.text, correctedText: nil, segments: output.segments)
                 let transcriptPath = try await storage.writeTranscript(record, id: item.id)
-                update(item.id) { $0.status = .transcribed; $0.progress = 1; $0.transcriptRelativePath = transcriptPath; $0.segmentCount = output.segments.count }
+                update(item.id) { $0.status = .transcribed; $0.progress = 1; $0.transcriptRelativePath = transcriptPath; $0.segmentCount = output.segments.count; $0.lastPerformance = output.performance }
                 try await persist()
             } catch is CancellationError {
                 update(item.id) { $0.status = .ready; $0.progress = 0 }
@@ -127,6 +138,8 @@ final class LibraryStore: ObservableObject {
     func deleteAll() async { for item in items { try? await storage.deleteItemFiles(for: item) }; items = []; try? await persist() }
 
     func clearCaches() async { try? await storage.clearCaches(); storageBytes = await storage.storageUsage() }
+
+    func releaseTranscriptionEngine() async { await enginePool?.unload(); enginePool = nil; engineProfile = nil }
 
     private func update(_ id: UUID, mutation: (inout MediaLibraryItem) -> Void) { guard let index = items.firstIndex(where: { $0.id == id }) else { return }; mutation(&items[index]) }
 

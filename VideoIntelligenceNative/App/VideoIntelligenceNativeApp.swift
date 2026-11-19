@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 @main
 struct VideoIntelligenceNativeApp: App {
@@ -9,6 +10,9 @@ struct VideoIntelligenceNativeApp: App {
             LibraryView()
                 .environmentObject(library)
                 .task { await library.load() }
+                .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
+                    Task { await library.releaseTranscriptionEngine() }
+                }
         }
     }
 }

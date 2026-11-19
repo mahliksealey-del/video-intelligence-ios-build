@@ -9,6 +9,7 @@ SOURCE_PROVENANCE.md
 VideoIntelligenceNative/App/VideoIntelligenceNativeApp.swift
 VideoIntelligenceNative/Contracts/TranscriptRecord.swift
 VideoIntelligenceNative/Contracts/TranscriptValidation.swift
+VideoIntelligenceNative/Diagnostics/DiagnosticLogger.swift
 VideoIntelligenceNative/Downloads/MediaDownloader.swift
 VideoIntelligenceNative/Export/TranscriptExporter.swift
 VideoIntelligenceNative/Import/AudioImportState.swift
@@ -19,6 +20,7 @@ VideoIntelligenceNative/MediaProcessing/AudioExtractor.swift
 VideoIntelligenceNative/Models/MediaLibraryItem.swift
 VideoIntelligenceNative/Storage/LibraryStorage.swift
 VideoIntelligenceNative/Transcription/Transcribing.swift
+VideoIntelligenceNative/Transcription/AccuracyBenchmark.swift
 VideoIntelligenceNative/Transcription/WhisperKitTranscriptionService.swift
 VideoIntelligenceNative/UI/AudioImportView.swift
 VideoIntelligenceNative/UI/Import/URLImportView.swift
@@ -31,6 +33,7 @@ VideoIntelligenceNative/UI/Transcript/TranscriptReaderView.swift
 VideoIntelligenceNativeTests/Fixtures/transcript-record.json
 VideoIntelligenceNativeTests/LibraryStorageTests.swift
 VideoIntelligenceNativeTests/MediaImportTests.swift
+VideoIntelligenceNativeTests/Phase3ReliabilityTests.swift
 VideoIntelligenceNativeTests/TranscriptExportTests.swift
 VideoIntelligenceNativeTests/TranscriptRecordContractTests.swift
 VideoIntelligenceNativeTests/TranscriptTimestampTests.swift

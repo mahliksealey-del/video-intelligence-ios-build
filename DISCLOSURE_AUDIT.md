@@ -8,6 +8,7 @@
 
 - Native SwiftUI media library with Files, Photos, direct-media URL, playback, editing, and export interfaces
 - Local storage, AVFoundation extraction, and pinned WhisperKit inference services
+- Phase 3 diagnostics, model validation, benchmark utilities, hardened download policy, and playback controller
 - Case-sensitive source folders `Models` and `Downloads`; the audit continues to reject lowercase runtime/model-data directories
 - Transcript `Codable` contract and timestamp validation
 - Deterministic harmless JSON fixture and native contract, import, storage, export, and service tests
@@ -23,6 +24,7 @@
 - Private development and planning documents: not required to compile or verify the native target.
 - Apple credentials, certificates, provisioning profiles, private keys, and signing identities: cloud output is deliberately unsigned.
 - Media, transcripts, downloads, caches, and model weights: private or unnecessary build inputs.
+- Embedded Python, yt-dlp resources, JavaScript solver bundles, and Keraunos source: evaluated but not included due to binary provenance, size, runtime, and licensing scope.
 - Generated `.xcodeproj`, DerivedData, test results, IPA files, and other build output: generated only by the runner and retained as short-lived artifacts.
 - Existing private-repository workflow: replaced by a public-root adaptation without private default-branch bootstrap logic.
 - Personal bundle identifier: replaced with the neutral identifier `com.example.videointelligence.nativeprototype`.

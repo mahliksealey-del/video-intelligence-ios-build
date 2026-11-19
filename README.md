@@ -41,6 +41,14 @@ URL ingestion accepts accessible direct HTTP(S) media resources. It does not scr
 
 Hosted tests use deterministic mocks around service boundaries. Actual model download, A15 inference, offline behavior, thermal performance, Photos memory behavior, and long-recording behavior require physical-device validation after installation.
 
+## Phase 3 reliability
+
+Phase 3 adds Fast, Balanced, and Accurate profiles (`base.en`, tuned `base.en`, and `small.en`), verified model asset discovery, free-space checks, retry/cancel/delete controls, persistent engine reuse, cold/warm timing, deterministic WER calculation, memory-pressure unloading, and exportable sanitized diagnostics. Balanced remains the default pending repeatable A15 benchmarks.
+
+Playback now uses the system playback audio category, AVPlayerViewController for video, an explicit draggable timeline, elapsed/total time, ±15-second seek, transcript timestamp seek, rate selection, end-state handling, and visible player errors.
+
+Direct downloads reject unsafe local-address literals, excessive files, text responses, and unsafe final redirect destinations. YouTube, TikTok, and Instagram URLs are detected but not falsely claimed as supported. Reliable on-device extraction requires an embedded Python/yt-dlp/JavaScript/muxing stack and unresolved binary/licensing review; this snapshot neither sends links to conversion sites nor bundles unaudited runtimes.
+
 ## Publication boundary
 
 `SOURCE_ALLOWLIST.txt` is the exact permitted tracked-file inventory. The workflow runs `scripts/audit-public-snapshot.sh` before installing tools or resolving dependencies. See `DISCLOSURE_AUDIT.md` and `SOURCE_PROVENANCE.md` for the reviewed disclosure boundary and source mapping.

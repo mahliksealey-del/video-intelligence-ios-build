@@ -19,6 +19,9 @@ struct MediaReviewView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(item.title).font(.title.weight(.bold))
                         Text("\(item.kind.rawValue.capitalized) · \(Duration.seconds(item.duration).formatted(.time(pattern: .minuteSecond)))").foregroundStyle(.secondary)
+                        if let timing = item.lastPerformance {
+                            Text("\(timing.wasWarm ? "Warm" : "Cold") \(item.status == .transcribed ? "transcription" : "run") · load \(timing.modelInitializationSeconds.formatted(.number.precision(.fractionLength(2))))s · inference \(timing.inferenceSeconds.formatted(.number.precision(.fractionLength(2))))s · total \(timing.totalSeconds.formatted(.number.precision(.fractionLength(2))))s").font(.caption).foregroundStyle(.secondary)
+                        }
                     }
                     if let mediaURL { MediaPlayerView(url: mediaURL, kind: item.kind, seekRequest: $seekRequest) }
                     else { Label("Source media was deleted; the transcript remains available.", systemImage: "doc.text").foregroundStyle(.secondary) }
