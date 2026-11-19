@@ -40,8 +40,10 @@ final class SocialExtractionTests: XCTestCase {
         XCTAssertFalse(InstagramSession.matchesInstagram("evilinstagram.com"))
         XCTAssertFalse(InstagramSession.matchesInstagram("instagram.com.evil.net"))
         XCTAssertFalse(InstagramSession.matchesInstagram("tiktok.com"))
-        XCTAssertNil(try await InstagramSession.shared.temporaryCookieFile(for: URL(string: "https://www.youtube.com/watch?v=abc")!))
-        XCTAssertNil(try await InstagramSession.shared.temporaryCookieFile(for: URL(string: "https://instagram.com.evil.net/reel/abc")!))
+        let youtubeCookieFile = try await InstagramSession.shared.temporaryCookieFile(for: URL(string: "https://www.youtube.com/watch?v=abc")!)
+        let spoofedCookieFile = try await InstagramSession.shared.temporaryCookieFile(for: URL(string: "https://instagram.com.evil.net/reel/abc")!)
+        XCTAssertNil(youtubeCookieFile)
+        XCTAssertNil(spoofedCookieFile)
     }
 
     func testProviderDetectionRejectsSuffixImpostors() throws {
