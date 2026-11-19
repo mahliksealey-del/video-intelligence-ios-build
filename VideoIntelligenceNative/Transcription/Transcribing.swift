@@ -11,7 +11,7 @@ struct TranscriptionOutput: Sendable, Equatable {
     let model: String
 }
 
-protocol Transcribing {
+protocol Transcribing: Sendable {
     func transcribe(_ request: TranscriptionRequest) async throws -> TranscriptionOutput
 }
 
@@ -22,3 +22,4 @@ enum NativeTranscriptionConfiguration {
     static let product = "WhisperKit"
     static let initialModel = "base.en"
 }
+

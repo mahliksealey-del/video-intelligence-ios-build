@@ -6,9 +6,10 @@
 
 ## Included
 
-- Minimal SwiftUI application and local audio-picker state
+- Native SwiftUI media library with Files, Photos, direct-media URL, playback, editing, and export interfaces
+- Local storage, AVFoundation extraction, and pinned WhisperKit inference services
 - Transcript `Codable` contract and timestamp validation
-- Deterministic harmless JSON fixture and native tests
+- Deterministic harmless JSON fixture and native contract, import, storage, export, and service tests
 - XcodeGen project specification with exact Argmax OSS Swift 1.1.1 dependency
 - Manual public build workflow
 - Tool-integrity, package-lock, simulator-selection, application-verification, packaging, and disclosure-audit scripts
@@ -36,4 +37,4 @@ Build #1 resolved and verified the dependency lock, generated the Xcode project,
 
 Build #3 reached Swift test compilation and exposed a module-name mismatch: product/executable `VideoIntelligence` caused the app module to default to `VideoIntelligence`, while tests import target module `VideoIntelligenceNative`. The app now declares that module explicitly without renaming the product, and the workflow verifies all related generated settings before compilation.
 
-The corrected snapshot still requires locked macOS runner evidence for native tests and unsigned device packaging.
+Build #4 proved the corrected foundation with all seven native tests, unsigned ARM64 packaging, and user-confirmed installation. The Phase 2 snapshot requires a new locked macOS runner pass and physical-device inference acceptance.

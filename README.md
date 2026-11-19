@@ -29,7 +29,17 @@ Build #3 showed that preserving product name `VideoIntelligence` also changed th
 
 Windows can audit this snapshot but cannot compile native iOS code. GitHub runner compilation is authoritative. Simulator and unsigned-build success do not establish signing, installation, iOS 26.6.2 compatibility, on-device memory behavior, or transcription inference.
 
-No inference implementation or Whisper model weights are included in this snapshot.
+Whisper model weights are not included in this snapshot. Phase 2 adds an explicit in-app model download and real local inference path; device-only performance and inference acceptance remain pending.
+
+## Phase 2 native media library
+
+The snapshot now contains unified Files, Photos, and direct-URL ingestion; AVFoundation audio extraction; persistent user-visible storage; explicit `base.en` model download; real WhisperKit inference; playback with timestamp seeking; separate transcript corrections; and TXT, SRT, JSON, and PDF export.
+
+iOS File Sharing exposes `Videos`, `Audio`, `Transcripts`, and `Exports` directly under Files → On My iPhone → Video Intelligence. The private library index and regenerable model weights remain in Application Support.
+
+URL ingestion accepts accessible direct HTTP(S) media resources. It does not scrape webpages or bypass authentication, streaming restrictions, or DRM. A Share extension is deferred because it requires a second signed target and App Group migration; Files, Photos, URL paste, and export sharing are implemented.
+
+Hosted tests use deterministic mocks around service boundaries. Actual model download, A15 inference, offline behavior, thermal performance, Photos memory behavior, and long-recording behavior require physical-device validation after installation.
 
 ## Publication boundary
 

@@ -36,6 +36,9 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Video Intelligence
         INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: YES
+        INFOPLIST_KEY_UIFileSharingEnabled: YES
+        INFOPLIST_KEY_NSDocumentsFolderUsageDescription: Video Intelligence imports media you select and keeps your library in its Documents folder.
+        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: Video Intelligence imports videos you explicitly select from your photo library.
         INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
         INFOPLIST_KEY_UISupportsDocumentBrowser: NO
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
@@ -47,8 +50,9 @@ targets:
     type: bundle.unit-test
     platform: iOS
     sources:
-      - path: VideoIntelligenceNativeTests/TranscriptRecordContractTests.swift
-      - path: VideoIntelligenceNativeTests/TranscriptTimestampTests.swift
+      - path: VideoIntelligenceNativeTests
+        excludes:
+          - Fixtures
       - path: VideoIntelligenceNativeTests/Fixtures
         type: folder
         buildPhase: resources
@@ -60,3 +64,4 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/VideoIntelligence.app/VideoIntelligence"
         BUNDLE_LOADER: "$(TEST_HOST)"
+
