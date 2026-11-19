@@ -58,11 +58,24 @@ private struct ModelDownloadRow: View {
                 ProgressView(value: progress) {
                     Text(progress > 0 ? "Downloading… \(Int(progress * 100))%" : "Preparing model download…")
                 }
+                if let startedAt = manager.downloadStartedAt[name] {
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        let elapsed = max(0, context.date.timeIntervalSince(startedAt))
+                        if elapsed >= 5, progress > 0.08, progress < 0.98 {
+                            let remaining = min(86_400, elapsed * (1 - progress) / progress)
+                            Text("Elapsed \(MediaPlayerView.clock(elapsed)) · ~\(MediaPlayerView.clock(remaining)) left (approximate model ETA)")
+                                .font(.caption).foregroundStyle(.secondary)
+                        } else {
+                            Text("Elapsed \(MediaPlayerView.clock(elapsed)) · estimating model download time…")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
                 Button("Cancel Download", role: .cancel) { manager.cancelDownload() }
             case .downloaded:
                 ProgressView("Validating…")
             case .validated:
-                HStack { Label("Validated", systemImage: "checkmark.seal.fill").foregroundStyle(.green); Spacer(); Button("Delete", role: .destructive) { requestDelete(model!) } }
+                HStack { Label("Validated", systemImage: "checkmark.seal.fill").foregroundStyle(.green); Spacer(); if let model { Button("Delete", role: .destructive) { requestDelete(model) } } }
             case .loaded:
                 Label("Loaded", systemImage: "memorychip.fill").foregroundStyle(.green)
             case .failed(let message):

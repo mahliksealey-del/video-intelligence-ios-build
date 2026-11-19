@@ -44,6 +44,7 @@ enum WhisperModelValidator {
 @MainActor
 final class WhisperModelManager: ObservableObject {
     @Published private(set) var models: [String: InstalledModel] = [:]
+    @Published private(set) var downloadStartedAt: [String: Date] = [:]
     @Published var selectedProfile: TranscriptionProfile {
         didSet { UserDefaults.standard.set(selectedProfile.rawValue, forKey: "transcriptionProfile") }
     }
@@ -81,6 +82,7 @@ final class WhisperModelManager: ObservableObject {
 
     func download(_ name: String) {
         downloadTask?.cancel()
+        downloadStartedAt[name] = Date()
         setState(name, .downloading(0))
         downloadTask = Task {
             let base = await storage.modelDirectory
