@@ -81,11 +81,11 @@ final class WhisperModelManager: ObservableObject {
 
     func download(_ name: String) {
         downloadTask?.cancel()
+        setState(name, .downloading(0))
         downloadTask = Task {
             let base = await storage.modelDirectory
             do {
                 try checkStorage(for: name, at: base)
-                setState(name, .downloading(0))
                 let folder = try await WhisperKit.download(variant: name, downloadBase: base) { progress in
                     Task { @MainActor in self.setState(name, .downloading(progress.fractionCompleted)) }
                 }

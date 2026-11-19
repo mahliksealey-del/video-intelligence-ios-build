@@ -48,7 +48,10 @@ struct MediaReviewView: View {
                     Button("Edit Transcript") { editing = true }
                     ForEach(TranscriptExportFormat.allCases) { format in Button("Export \(format.rawValue.uppercased())") { export(format, item: item) } }
                 }
-                if item.mediaRelativePath != nil { Button("Delete Media Only", role: .destructive) { Task { await library.deleteMedia(item); await reload() } } }
+                if item.mediaRelativePath != nil {
+                    Button("Export Media") { exportMedia(item) }
+                    Button("Delete Media Only", role: .destructive) { Task { await library.deleteMedia(item); await reload() } }
+                }
                 Button("Delete Entire Item", role: .destructive) { confirmDelete = true }
             } label: { Label("More", systemImage: "ellipsis.circle") }.buttonStyle(.bordered)
         }
@@ -58,6 +61,30 @@ struct MediaReviewView: View {
         guard let item else { return }
         if let path = item.mediaRelativePath { mediaURL = try? await library.storage.URLFor(relativePath: path) }
         if item.transcriptRelativePath != nil { transcript = try? await library.transcript(for: item) }
+    }
+
+    private func exportMedia(_ item: MediaLibraryItem) {
+        guard let relativePath = item.mediaRelativePath else { return }
+        Task {
+            do {
+                let source = try await library.storage.URLFor(relativePath: relativePath)
+                guard FileManager.default.fileExists(atPath: source.path) else { throw CocoaError(.fileNoSuchFile) }
+                let cleanTitle = item.title
+                    .components(separatedBy: CharacterSet(charactersIn: "/\\:"))
+                    .joined(separator: "-")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let filename = String((cleanTitle.isEmpty ? "Exported Media" : cleanTitle).prefix(80))
+                let folder = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("VideoIntelligenceExport-\(UUID().uuidString)", isDirectory: true)
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                let destination = folder.appendingPathComponent(filename)
+                    .appendingPathExtension(source.pathExtension.isEmpty ? (item.kind == .video ? "mp4" : "m4a") : source.pathExtension)
+                try FileManager.default.copyItem(at: source, to: destination)
+                shareURL = destination
+            } catch {
+                library.errorMessage = "Unable to export media: \(error.localizedDescription)"
+            }
+        }
     }
 
     private func export(_ format: TranscriptExportFormat, item: MediaLibraryItem) {
