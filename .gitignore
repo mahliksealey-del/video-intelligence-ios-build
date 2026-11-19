@@ -20,9 +20,9 @@ xcuserdata/
 .env.*
 
 # Models, media, and transcripts
-models/
-private-media/
-transcripts/
+/models/
+/private-media/
+/transcripts/
 *.mlmodel
 *.mlmodelc
 *.onnx
