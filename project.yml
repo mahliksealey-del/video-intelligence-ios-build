@@ -52,11 +52,7 @@ targets:
     postBuildScripts:
       - name: Install embedded Python standard library
         script: |
-          set -euo pipefail
-          source "$PROJECT_DIR/Runtime/PythonResources/Python.xcframework/build/utils.sh"
-          rsync -a --delete "$PROJECT_DIR/Runtime/PythonResources/app/" "$CODESIGNING_FOLDER_PATH/app/"
-          rsync -a --delete "$PROJECT_DIR/Runtime/PythonResources/app_packages/" "$CODESIGNING_FOLDER_PATH/app_packages/"
-          install_python "Runtime/PythonResources/Python.xcframework" "Runtime/PythonResources/app" "Runtime/PythonResources/app_packages"
+          bash "$PROJECT_DIR/scripts/install-python-runtime.sh"
 
   VideoIntelligenceNativeTests:
     type: bundle.unit-test

@@ -50,6 +50,7 @@ VideoIntelligenceNativeTests/TranscriptionServiceTests.swift
 project.yml
 scripts/audit-public-snapshot.sh
 scripts/install-xcodegen.sh
+scripts/install-python-runtime.sh
 scripts/prepare-social-runtime.sh
 scripts/select-simulator.sh
 scripts/verify-build-settings.sh
