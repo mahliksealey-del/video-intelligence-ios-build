@@ -26,4 +26,4 @@ fi
 
 rsync -a --delete "$PYTHON_ROOT/app/" "$CODESIGNING_FOLDER_PATH/app/"
 rsync -a --delete "$PYTHON_ROOT/app_packages/" "$CODESIGNING_FOLDER_PATH/app_packages/"
-install_python "Runtime/PythonResources/Python.xcframework" "Runtime/PythonResources/app" "Runtime/PythonResources/app_packages"
+install_python "Runtime/PythonResources/Python.xcframework" "app" "app_packages"
