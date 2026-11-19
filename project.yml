@@ -43,6 +43,7 @@ targets:
         INFOPLIST_KEY_UIFileSharingEnabled: YES
         INFOPLIST_KEY_NSDocumentsFolderUsageDescription: Video Intelligence imports media you select and keeps your library in its Documents folder.
         INFOPLIST_KEY_NSPhotoLibraryUsageDescription: Video Intelligence imports videos you explicitly select from your photo library.
+        INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: Video Intelligence saves videos to your Photos library only when you tap Save to Photos.
         INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
         INFOPLIST_KEY_UISupportsDocumentBrowser: NO
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
