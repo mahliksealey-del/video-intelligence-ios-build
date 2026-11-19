@@ -26,8 +26,7 @@ struct MediaReviewView: View {
                     if let mediaURL { MediaPlayerView(url: mediaURL, kind: item.kind, seekRequest: $seekRequest) }
                     else { Label("Source media was deleted; the transcript remains available.", systemImage: "doc.text").foregroundStyle(.secondary) }
                     actionPanel(item)
-                    if let transcript { Divider(); TranscriptReaderView(transcript: transcript) { seekRequest = $0 } }
-                    else if item.status == .transcribing || item.status == .extractingAudio {
+                    if item.status == .transcribing || item.status == .extractingAudio {
                         VStack(alignment: .leading, spacing: 6) {
                             ProgressView(item.status == .extractingAudio ? "Extracting audio…" : "Transcribing on this iPhone…")
                             if library.activeTaskID == item.id, let startedAt = library.activeTaskStartedAt {
@@ -47,6 +46,7 @@ struct MediaReviewView: View {
                             }
                         }
                     }
+                    if let transcript { Divider(); TranscriptReaderView(transcript: transcript) { seekRequest = $0 } }
                 }.padding()
             }
         }

@@ -8,6 +8,7 @@ struct URLImportView: View {
     @State private var formats: [SocialFormatOption] = []
     @State private var resolved: ResolvedSocialMedia?
     @State private var isResolving = false
+    @State private var resolveStartedAt: Date?
     @State private var errorMessage: String?
 
     private var provider: MediaProvider? { (try? MediaURLValidator.validate(value)).map(MediaProvider.detect) }
@@ -19,7 +20,18 @@ struct URLImportView: View {
                     TextField("YouTube, TikTok, Instagram, or direct media URL", text: $value).textInputAutocapitalization(.never).keyboardType(.URL).autocorrectionDisabled()
                     if let provider { LabeledContent("Detected", value: provider.rawValue) }
                 }
-                if isResolving { Section { ProgressView("Resolving on this iPhone…") } }
+                if isResolving {
+                    Section {
+                        ProgressView("Resolving on this iPhone…")
+                        if let startedAt = resolveStartedAt {
+                            TimelineView(.periodic(from: .now, by: 1)) { context in
+                                let elapsed = max(0, context.date.timeIntervalSince(startedAt))
+                                Text("Checking provider · elapsed \(MediaPlayerView.clock(elapsed)) · time remaining unknown")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
                 if !formats.isEmpty {
                     Section("Available video formats") {
                         ForEach(formats) { option in
@@ -72,6 +84,7 @@ struct URLImportView: View {
         errorMessage = nil; formats = []; resolved = nil
         guard provider != .direct else { library.importURL(value); dismiss(); return }
         isResolving = true
+        resolveStartedAt = Date()
         Task {
             do {
                 let (url, listing) = try await library.listSocialFormats(value)
@@ -79,13 +92,14 @@ struct URLImportView: View {
                 switch listing { case .ready(let media): resolved = media; case .choices(let options): formats = options }
             } catch { errorMessage = error.localizedDescription }
             isResolving = false
+            resolveStartedAt = nil
         }
     }
 
     private func choose(_ option: SocialFormatOption) {
         guard let sourceURL else { return }
-        isResolving = true; errorMessage = nil
-        Task { do { resolved = try await library.resolveSocial(sourceURL, option: option); formats = [] } catch { errorMessage = error.localizedDescription }; isResolving = false }
+        isResolving = true; errorMessage = nil; resolveStartedAt = Date()
+        Task { do { resolved = try await library.resolveSocial(sourceURL, option: option); formats = [] } catch { errorMessage = error.localizedDescription }; isResolving = false; resolveStartedAt = nil }
     }
 
     private func start(_ media: ResolvedSocialMedia, mode: SocialDownloadMode) {
