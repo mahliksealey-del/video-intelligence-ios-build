@@ -59,6 +59,7 @@ test -f "$NEW_PACKAGE/extractor/instagram.py"
 rm -rf "$RUNTIME/app_packages/yt_dlp"
 cp -R "$NEW_PACKAGE" "$RUNTIME/app_packages/yt_dlp"
 
+python3 scripts/patch-social-runtime.py "$RUNTIME/app/keraunos_extract.py"
 test -f "$RUNTIME/app/keraunos_extract.py"
 test -f "$RUNTIME/app/cacert.pem"
 test -f "$RUNTIME/app_packages/yt_dlp/version.py"

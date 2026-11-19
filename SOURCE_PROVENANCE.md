@@ -16,3 +16,5 @@ The native application sources, tests, fixture, and build helpers were copied fr
 - removal of experiment-branch guards that apply only to the private repository, replaced by an exact public allowlist audit.
 
 No private Git objects or history are part of this repository.
+
+- Device-acceptance branch experiment: the embedded, pure-Python yt-dlp code is upgraded to the official 2026.10.26 release with its published SHA-256 verified at build. A strict layout-checked edit adds a TikTok-only Referer header to Keraunos extraction requests. The old stable build remains intact on main. User sessions/cookies never enter tracked source or evidence artifacts.

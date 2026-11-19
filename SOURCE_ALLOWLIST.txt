@@ -52,6 +52,7 @@ scripts/audit-public-snapshot.sh
 scripts/install-xcodegen.sh
 scripts/install-python-runtime.sh
 scripts/prepare-social-runtime.sh
+scripts/patch-social-runtime.py
 scripts/select-simulator.sh
 scripts/verify-build-settings.sh
 scripts/verify-and-package-app.sh
