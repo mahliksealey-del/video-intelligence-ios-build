@@ -32,6 +32,26 @@ final class SocialExtractionTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testInstagramAuthDomainIsolation() async throws {
+        XCTAssertTrue(InstagramSession.matchesInstagram("instagram.com"))
+        XCTAssertTrue(InstagramSession.matchesInstagram(".instagram.com"))
+        XCTAssertTrue(InstagramSession.matchesInstagram("www.instagram.com"))
+        XCTAssertFalse(InstagramSession.matchesInstagram("evilinstagram.com"))
+        XCTAssertFalse(InstagramSession.matchesInstagram("instagram.com.evil.net"))
+        XCTAssertFalse(InstagramSession.matchesInstagram("tiktok.com"))
+        XCTAssertNil(try await InstagramSession.shared.temporaryCookieFile(for: URL(string: "https://www.youtube.com/watch?v=abc")!))
+        XCTAssertNil(try await InstagramSession.shared.temporaryCookieFile(for: URL(string: "https://instagram.com.evil.net/reel/abc")!))
+    }
+
+    func testProviderDetectionRejectsSuffixImpostors() throws {
+        XCTAssertEqual(MediaProvider.detect(try MediaURLValidator.validate("https://www.tiktok.com/t/ZPNLLmuU9/")), .tiktok)
+        XCTAssertEqual(MediaProvider.detect(try MediaURLValidator.validate("https://www.instagram.com/reel/sample/")), .instagram)
+        XCTAssertEqual(MediaProvider.detect(try MediaURLValidator.validate("https://notinstagram.com/video")), .direct)
+        XCTAssertEqual(MediaProvider.detect(try MediaURLValidator.validate("https://notyoutube.com/video")), .direct)
+        XCTAssertEqual(MediaProvider.detect(try MediaURLValidator.validate("https://notiktok.com/video")), .direct)
+    }
+
     func testRejectsPrivateResolvedTrack() {
         let data = Data(#"{"ok":true,"kind":"progressive","media":{"url":"http://127.0.0.1/video.mp4","ext":"mp4"}}"#.utf8)
         XCTAssertThrowsError(try SocialExtractionDecoder.resolved(data))
