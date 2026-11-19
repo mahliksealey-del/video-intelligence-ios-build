@@ -27,3 +27,12 @@ fi
 rsync -a --delete "$PYTHON_ROOT/app/" "$CODESIGNING_FOLDER_PATH/app/"
 rsync -a --delete "$PYTHON_ROOT/app_packages/" "$CODESIGNING_FOLDER_PATH/app_packages/"
 install_python "Runtime/PythonResources/Python.xcframework" "app" "app_packages"
+
+# CPython's regression-test suite is bundled in the upstream stdlib. It is not
+# needed by the on-device runtime, and includes audio fixtures forbidden by the
+# IPA disclosure audit. Prune only this precise stdlib test directory.
+CPYTHON_TEST_DIR="$CODESIGNING_FOLDER_PATH/python/lib/python3.13/test"
+if [[ -d "$CPYTHON_TEST_DIR" ]]; then
+  rm -rf -- "$CPYTHON_TEST_DIR"
+  echo "Removed unused CPython regression tests from application bundle."
+fi
