@@ -36,7 +36,7 @@ enum SocialExtractionError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .authenticationRequired: return "This media requires an explicit account sign-in, which is not configured."
+        case .authenticationRequired: return "The provider requires sign-in or has restricted anonymous access. For Instagram, sign in through Get Media and retry."
         case .unavailable: return "This media is private, removed, geo-restricted, or unavailable."
         case .rateLimited: return "The provider is rate-limiting requests. Wait and try again."
         case .unsupported(let detail): return "The provider could not supply an iPhone-compatible stream. \(detail)"

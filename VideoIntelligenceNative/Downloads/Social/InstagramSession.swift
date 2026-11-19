@@ -22,7 +22,7 @@ final class InstagramSession: ObservableObject {
         hasSession = cookies.contains { cookie in
             Self.matchesInstagram(cookie.domain)
                 && cookie.name == "sessionid"
-                && (cookie.expiresDate == nil || cookie.expiresDate! > Date())
+                && (cookie.expiresDate.map { $0 > Date() } ?? true)
         }
     }
 
@@ -30,7 +30,7 @@ final class InstagramSession: ObservableObject {
         let store = dataStore.httpCookieStore
         let cookies = await store.allCookies()
         for cookie in cookies where Self.matchesInstagram(cookie.domain) {
-            await store.delete(cookie)
+            await store.deleteCookie(cookie)
         }
         hasSession = false
     }
@@ -42,7 +42,7 @@ final class InstagramSession: ObservableObject {
         let all = await dataStore.httpCookieStore.allCookies()
         let cookies = all.filter {
             Self.matchesInstagram($0.domain) &&
-            ($0.expiresDate == nil || $0.expiresDate! > Date())
+            ($0.expiresDate.map { $0 > Date() } ?? true)
         }
         guard cookies.contains(where: { $0.name == "sessionid" }) else {
             hasSession = false

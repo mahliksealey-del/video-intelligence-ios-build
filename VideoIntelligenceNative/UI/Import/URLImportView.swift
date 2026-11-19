@@ -3,6 +3,8 @@ import SwiftUI
 struct URLImportView: View {
     @EnvironmentObject private var library: LibraryStore
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var instagramSession = InstagramSession.shared
+    @State private var showingInstagramSignIn = false
     @State private var value = ""
     @State private var sourceURL: URL?
     @State private var formats: [SocialFormatOption] = []
@@ -19,6 +21,20 @@ struct URLImportView: View {
                 Section("Media URL") {
                     TextField("YouTube, TikTok, Instagram, or direct media URL", text: $value).textInputAutocapitalization(.never).keyboardType(.URL).autocorrectionDisabled()
                     if let provider { LabeledContent("Detected", value: provider.rawValue) }
+                }
+                if provider == .instagram {
+                    Section("Instagram account") {
+                        if instagramSession.hasSession {
+                            Label("Instagram session available on this iPhone", systemImage: "checkmark.shield.fill")
+                            Button("Sign out of Instagram", role: .destructive) { Task { await instagramSession.signOut() } }
+                        } else {
+                            Text("Public Reels can still require an Instagram session.")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        }
+                        Button(instagramSession.hasSession ? "Update Instagram Sign-In" : "Sign in to Instagram") {
+                            showingInstagramSignIn = true
+                        }
+                    }
                 }
                 if isResolving {
                     Section {
@@ -73,6 +89,10 @@ struct URLImportView: View {
                 Section { Text("Extraction and transfer run locally. Private, DRM-protected, unavailable, or authentication-gated media is not bypassed. Download only media you are authorized to save.").font(.footnote).foregroundStyle(.secondary) }
             }
             .navigationTitle("Get Media")
+            .task { await instagramSession.refresh() }
+            .sheet(isPresented: $showingInstagramSignIn, onDismiss: { Task { await instagramSession.refresh() } }) {
+                InstagramSignInView(session: instagramSession)
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) { Button(provider == .direct ? "Download" : "Resolve") { resolve() }.disabled(value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isResolving || library.socialDownloadProgress != nil) }
