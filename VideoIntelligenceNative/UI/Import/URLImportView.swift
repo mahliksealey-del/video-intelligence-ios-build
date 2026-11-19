@@ -12,6 +12,7 @@ struct URLImportView: View {
     @State private var isResolving = false
     @State private var resolveStartedAt: Date?
     @State private var errorMessage: String?
+    @State private var showTikTokBrowser = false
 
     private var provider: MediaProvider? { (try? MediaURLValidator.validate(value)).map(MediaProvider.detect) }
 
@@ -85,10 +86,27 @@ struct URLImportView: View {
                         Button("Cancel", role: .destructive) { library.cancelOperation() }
                     }
                 }
-                if let errorMessage { Section { Text(errorMessage).foregroundStyle(.red) } }
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage).foregroundStyle(.red)
+                        if provider == .tiktok {
+                            Button("Try TikTok Browser Fallback") { showTikTokBrowser = true }
+                        }
+                    }
+                }
                 Section { Text("Extraction and transfer run locally. Private, DRM-protected, unavailable, or authentication-gated media is not bypassed. Download only media you are authorized to save.").font(.footnote).foregroundStyle(.secondary) }
             }
             .navigationTitle("Get Media")
+            .sheet(isPresented: $showTikTokBrowser) {
+                if let url = try? MediaURLValidator.validate(value), MediaProvider.detect(url) == .tiktok {
+                    TikTokBrowserFallbackView(url: url) { media in
+                        sourceURL = url
+                        formats = []
+                        resolved = media
+                        errorMessage = nil
+                    }
+                }
+            }
             .task { await instagramSession.refresh() }
             .sheet(isPresented: $showingInstagramSignIn, onDismiss: { Task { await instagramSession.refresh() } }) {
                 InstagramSignInView(session: instagramSession)

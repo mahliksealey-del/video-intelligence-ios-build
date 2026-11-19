@@ -54,6 +54,23 @@ final class SocialExtractionTests: XCTestCase {
         XCTAssertEqual(MediaProvider.detect(try MediaURLValidator.validate("https://notiktok.com/video")), .direct)
     }
 
+    func testTikTokBrowserCandidateIsStrictlyBoundToPostAndAllowedHost() throws {
+        let good = #"{"postID":"7705112358586289421","pageID":"7705112358586289421","mediaURL":"https://v19-webapp-prime.tiktok.com/video/abc","title":"Clip","userAgent":"WebKit test"}"#
+        let result = try TikTokBrowserResolution.decode(good)
+        guard case .progressive(let track) = result.kind else { return XCTFail("Expected progressive video") }
+        XCTAssertEqual(track.headers["Referer"], "https://www.tiktok.com/")
+        XCTAssertEqual(track.headers["User-Agent"], "WebKit test")
+
+        for json in [
+            #"{"postID":"7705112358586289421","pageID":"999","mediaURL":"https://v19-webapp-prime.tiktok.com/video/abc"}"#,
+            #"{"postID":"7705112358586289421","pageID":"7705112358586289421","mediaURL":"https://tiktok.com.evil.net/video/abc"}"#,
+            #"{"postID":"7705112358586289421","pageID":"7705112358586289421","mediaURL":"http://v19-webapp-prime.tiktok.com/video/abc"}"#,
+            #"{"postID":"7705112358586289421","pageID":"7705112358586289421","mediaURL":"blob:https://www.tiktok.com/abc"}"#
+        ] {
+            XCTAssertThrowsError(try TikTokBrowserResolution.decode(json))
+        }
+    }
+
     func testRejectsPrivateResolvedTrack() {
         let data = Data(#"{"ok":true,"kind":"progressive","media":{"url":"http://127.0.0.1/video.mp4","ext":"mp4"}}"#.utf8)
         XCTAssertThrowsError(try SocialExtractionDecoder.resolved(data))
