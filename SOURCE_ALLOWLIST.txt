@@ -14,6 +14,8 @@ VideoIntelligenceNative/Contracts/TranscriptValidation.swift
 VideoIntelligenceNative/Diagnostics/DiagnosticLogger.swift
 VideoIntelligenceNative/Downloads/MediaDownloader.swift
 VideoIntelligenceNative/Downloads/Social/PythonSocialExtractor.swift
+VideoIntelligenceNative/Downloads/Social/InstagramSession.swift
+VideoIntelligenceNative/Downloads/Social/InstagramSignInView.swift
 VideoIntelligenceNative/Downloads/Social/SocialExtractionModels.swift
 VideoIntelligenceNative/Downloads/Social/SocialMediaDownloadService.swift
 VideoIntelligenceNative/Export/TranscriptExporter.swift
