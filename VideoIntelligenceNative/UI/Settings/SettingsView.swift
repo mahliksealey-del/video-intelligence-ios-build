@@ -10,7 +10,7 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 Section("Transcription profile") {
-                    Picker("Profile", selection: $library.modelManager.selectedProfile) { ForEach(TranscriptionProfile.allCases) { Text($0.title).tag($0) } }
+                    Picker("Profile", selection: Binding(get: { library.modelManager.selectedProfile }, set: { library.modelManager.selectedProfile = $0 })) { ForEach(TranscriptionProfile.allCases) { Text($0.title).tag($0) } }
                     Text(library.modelManager.selectedProfile.detail).font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Speech models") {
