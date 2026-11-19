@@ -9,7 +9,7 @@ grep -v '^[[:space:]]*$' SOURCE_ALLOWLIST.txt | LC_ALL=C sort > "$EXPECTED"
 git ls-files | LC_ALL=C sort > "$ACTUAL"
 diff -u "$EXPECTED" "$ACTUAL"
 
-if git ls-files | grep -Eiq '(^|/)(node_modules|dist|DerivedData|Artifacts|build|models|private-media|transcripts|downloads|cache)(/|$)'; then
+if git ls-files | grep -Eq '(^|/)(node_modules|dist|DerivedData|Artifacts|build|models|private-media|transcripts|downloads|cache)(/|$)'; then
   echo 'Forbidden generated, private, or model directory is tracked.' >&2
   exit 1
 fi

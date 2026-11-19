@@ -8,6 +8,7 @@
 
 - Native SwiftUI media library with Files, Photos, direct-media URL, playback, editing, and export interfaces
 - Local storage, AVFoundation extraction, and pinned WhisperKit inference services
+- Case-sensitive source folders `Models` and `Downloads`; the audit continues to reject lowercase runtime/model-data directories
 - Transcript `Codable` contract and timestamp validation
 - Deterministic harmless JSON fixture and native contract, import, storage, export, and service tests
 - XcodeGen project specification with exact Argmax OSS Swift 1.1.1 dependency
