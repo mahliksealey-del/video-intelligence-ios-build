@@ -38,7 +38,24 @@ struct URLImportView: View {
                     }
                 }
                 if let progress = library.socialDownloadProgress {
-                    Section("Downloading") { ProgressView(value: progress); Button("Cancel", role: .destructive) { library.cancelOperation() } }
+                    Section("Downloading") {
+                        ProgressView(value: progress)
+                        if let startedAt = library.socialDownloadStartedAt {
+                            TimelineView(.periodic(from: .now, by: 1)) { context in
+                                let elapsed = max(0, context.date.timeIntervalSince(startedAt))
+                                if progress >= 0.98 {
+                                    Text("Finalizing media · elapsed \(MediaPlayerView.clock(elapsed))").font(.caption).foregroundStyle(.secondary)
+                                } else if elapsed >= 5, progress > 0.08 {
+                                    let remaining = min(86_400, elapsed * (1 - progress) / progress)
+                                    Text("Elapsed \(MediaPlayerView.clock(elapsed)) · ~\(MediaPlayerView.clock(remaining)) left (approximate transfer ETA)")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                } else {
+                                    Text("Elapsed \(MediaPlayerView.clock(elapsed)) · estimating transfer time…").font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        Button("Cancel", role: .destructive) { library.cancelOperation() }
+                    }
                 }
                 if let errorMessage { Section { Text(errorMessage).foregroundStyle(.red) } }
                 Section { Text("Extraction and transfer run locally. Private, DRM-protected, unavailable, or authentication-gated media is not bypassed. Download only media you are authorized to save.").font(.footnote).foregroundStyle(.secondary) }

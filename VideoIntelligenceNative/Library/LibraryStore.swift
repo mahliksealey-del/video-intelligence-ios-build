@@ -9,6 +9,7 @@ final class LibraryStore: ObservableObject {
     @Published var activeTaskID: UUID?
     @Published var storageBytes: Int64 = 0
     @Published var socialDownloadProgress: Double?
+    @Published var socialDownloadStartedAt: Date?
 
     let storage: LibraryStorage
     let modelManager: WhisperModelManager
@@ -136,6 +137,7 @@ final class LibraryStore: ObservableObject {
     func downloadSocial(_ media: ResolvedSocialMedia, sourceURL: URL, mode: SocialDownloadMode) {
         operation?.cancel()
         socialDownloadProgress = 0
+        socialDownloadStartedAt = Date()
         operation = Task {
             do {
                 let result = try await socialDownloader.download(media, sourceURL: sourceURL, mode: mode) { progress in
@@ -144,9 +146,10 @@ final class LibraryStore: ObservableObject {
                 let itemID = await importFile(result.fileURL, sourceURL: result.sourceURL.absoluteString, title: result.title)
                 try? FileManager.default.removeItem(at: result.fileURL.deletingLastPathComponent())
                 socialDownloadProgress = nil
+                socialDownloadStartedAt = nil
                 if result.shouldTranscribe, let itemID, let item = items.first(where: { $0.id == itemID }) { transcribe(item) }
-            } catch is CancellationError { socialDownloadProgress = nil }
-            catch { socialDownloadProgress = nil; errorMessage = error.localizedDescription }
+            } catch is CancellationError { socialDownloadProgress = nil; socialDownloadStartedAt = nil }
+            catch { socialDownloadProgress = nil; socialDownloadStartedAt = nil; errorMessage = error.localizedDescription }
         }
     }
 
