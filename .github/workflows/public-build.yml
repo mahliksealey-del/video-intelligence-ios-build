@@ -60,6 +60,10 @@ jobs:
         shell: bash
         run: bash scripts/install-xcodegen.sh
 
+      - name: Prepare verified embedded social runtime
+        shell: bash
+        run: bash scripts/prepare-social-runtime.sh .
+
       - name: Generate Xcode project
         shell: bash
         run: |

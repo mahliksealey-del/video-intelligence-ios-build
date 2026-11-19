@@ -1,6 +1,7 @@
 # Generated Apple project and build output
 VideoIntelligenceNative.xcodeproj/
 DerivedData/
+Runtime/PythonResources/
 Artifacts/
 build/
 *.xcuserstate

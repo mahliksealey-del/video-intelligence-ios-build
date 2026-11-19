@@ -8,6 +8,7 @@ final class LibraryStore: ObservableObject {
     @Published var errorMessage: String?
     @Published var activeTaskID: UUID?
     @Published var storageBytes: Int64 = 0
+    @Published var socialDownloadProgress: Double?
 
     let storage: LibraryStorage
     let modelManager: WhisperModelManager
@@ -16,6 +17,7 @@ final class LibraryStore: ObservableObject {
     private var operation: Task<Void, Never>?
     private var enginePool: WhisperKitEnginePool?
     private var engineProfile: TranscriptionProfile?
+    private let socialDownloader = SocialMediaDownloadService()
 
     init(storage: LibraryStorage = LibraryStorage(), extractor: AudioExtracting = AudioExtractor()) {
         self.storage = storage
@@ -32,23 +34,25 @@ final class LibraryStore: ObservableObject {
         } catch { errorMessage = error.localizedDescription }
     }
 
-    func importFile(_ url: URL, sourceURL: String? = nil) async {
+    @discardableResult
+    func importFile(_ url: URL, sourceURL: String? = nil, title: String? = nil) async -> UUID? {
         do {
             guard let kind = MediaClassifier.classify(url) else { throw MediaImportError.unsupportedType }
             let id = UUID()
             let relative = try await storage.importMedia(from: url, kind: kind, id: id)
             let storedURL = try await storage.URLFor(relativePath: relative)
             let duration = try await metadata.duration(of: storedURL)
-            items.insert(MediaLibraryItem(id: id, title: url.deletingPathExtension().lastPathComponent, kind: kind, sourceFilename: url.lastPathComponent, sourceURL: sourceURL, mediaRelativePath: relative, importedAt: Date(), duration: duration, status: .ready, progress: 0), at: 0)
+            items.insert(MediaLibraryItem(id: id, title: title ?? url.deletingPathExtension().lastPathComponent, kind: kind, sourceFilename: url.lastPathComponent, sourceURL: sourceURL, mediaRelativePath: relative, importedAt: Date(), duration: duration, status: .ready, progress: 0), at: 0)
             try await persist()
-        } catch { errorMessage = error.localizedDescription }
+            return id
+        } catch { errorMessage = error.localizedDescription; return nil }
     }
 
     func importPhotoData(_ data: Data, suggestedExtension: String = "mov") async {
         let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension(suggestedExtension)
         do {
             try data.write(to: temporary, options: .atomic)
-            await importFile(temporary)
+            _ = await importFile(temporary)
             try? FileManager.default.removeItem(at: temporary)
         } catch { errorMessage = error.localizedDescription }
     }
@@ -62,7 +66,7 @@ final class LibraryStore: ObservableObject {
                 guard provider == .direct else { throw MediaDownloadError.providerRequiresExtractor(provider.rawValue) }
                 let local = try await MediaDownloader().download(from: url)
                 try Task.checkCancellation()
-                await importFile(local, sourceURL: url.absoluteString)
+                _ = await importFile(local, sourceURL: url.absoluteString)
                 try? FileManager.default.removeItem(at: local)
             } catch is CancellationError { }
             catch { errorMessage = error.localizedDescription }
@@ -118,6 +122,33 @@ final class LibraryStore: ObservableObject {
     }
 
     func cancelOperation() { operation?.cancel(); operation = nil }
+
+    func listSocialFormats(_ value: String) async throws -> (URL, SocialFormatListing) {
+        let url = try MediaURLValidator.validate(value)
+        guard MediaProvider.detect(url) != .direct else { throw MediaDownloadError.unsupportedContent }
+        return (url, try await socialDownloader.listFormats(url))
+    }
+
+    func resolveSocial(_ url: URL, option: SocialFormatOption?) async throws -> ResolvedSocialMedia {
+        try await socialDownloader.resolve(url, option: option)
+    }
+
+    func downloadSocial(_ media: ResolvedSocialMedia, sourceURL: URL, mode: SocialDownloadMode) {
+        operation?.cancel()
+        socialDownloadProgress = 0
+        operation = Task {
+            do {
+                let result = try await socialDownloader.download(media, sourceURL: sourceURL, mode: mode) { progress in
+                    Task { @MainActor in self.socialDownloadProgress = progress }
+                }
+                let itemID = await importFile(result.fileURL, sourceURL: result.sourceURL.absoluteString, title: result.title)
+                try? FileManager.default.removeItem(at: result.fileURL.deletingLastPathComponent())
+                socialDownloadProgress = nil
+                if result.shouldTranscribe, let itemID, let item = items.first(where: { $0.id == itemID }) { transcribe(item) }
+            } catch is CancellationError { socialDownloadProgress = nil }
+            catch { socialDownloadProgress = nil; errorMessage = error.localizedDescription }
+        }
+    }
 
     func transcript(for item: MediaLibraryItem) async throws -> TranscriptRecord {
         guard let path = item.transcriptRelativePath else { throw CocoaError(.fileNoSuchFile) }

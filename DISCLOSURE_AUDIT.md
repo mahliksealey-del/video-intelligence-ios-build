@@ -7,6 +7,7 @@
 ## Included
 
 - Native SwiftUI media library with Files, Photos, direct-media URL, playback, editing, and export interfaces
+- Keraunos-derived on-device social extractor bridge, native downloader/merger, deterministic tests, GPL license and third-party notices
 - Local storage, AVFoundation extraction, and pinned WhisperKit inference services
 - Phase 3 diagnostics, model validation, benchmark utilities, hardened download policy, and playback controller
 - Case-sensitive source folders `Models` and `Downloads`; the audit continues to reject lowercase runtime/model-data directories
@@ -24,7 +25,7 @@
 - Private development and planning documents: not required to compile or verify the native target.
 - Apple credentials, certificates, provisioning profiles, private keys, and signing identities: cloud output is deliberately unsigned.
 - Media, transcripts, downloads, caches, and model weights: private or unnecessary build inputs.
-- Embedded Python, yt-dlp resources, JavaScript solver bundles, and Keraunos source: evaluated but not included due to binary provenance, size, runtime, and licensing scope.
+- Generated BeeWare CPython binaries and yt-dlp resources: downloaded only by the runner from exact pinned, SHA-256-verified upstream archives and excluded from Git. The bridge-derived corresponding source and reproducible acquisition script are included under GPLv3.
 - Generated `.xcodeproj`, DerivedData, test results, IPA files, and other build output: generated only by the runner and retained as short-lived artifacts.
 - Existing private-repository workflow: replaced by a public-root adaptation without private default-branch bootstrap logic.
 - Personal bundle identifier: replaced with the neutral identifier `com.example.videointelligence.nativeprototype`.
@@ -41,3 +42,5 @@ Build #1 resolved and verified the dependency lock, generated the Xcode project,
 Build #3 reached Swift test compilation and exposed a module-name mismatch: product/executable `VideoIntelligence` caused the app module to default to `VideoIntelligence`, while tests import target module `VideoIntelligenceNative`. The app now declares that module explicitly without renaming the product, and the workflow verifies all related generated settings before compilation.
 
 Build #4 proved the corrected foundation with all seven native tests, unsigned ARM64 packaging, and user-confirmed installation. The Phase 2 snapshot requires a new locked macOS runner pass and physical-device inference acceptance.
+
+The downloader revision is locally audited but not yet claimed as live-provider validated. The next locked runner build must establish compilation and deterministic tests; YouTube, TikTok, Instagram, adaptive merge, cancellation, playback, and transcription require physical-device acceptance.

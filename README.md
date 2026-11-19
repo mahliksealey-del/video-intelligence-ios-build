@@ -47,7 +47,7 @@ Phase 3 adds Fast, Balanced, and Accurate profiles (`base.en`, tuned `base.en`, 
 
 Playback now uses the system playback audio category, AVPlayerViewController for video, an explicit draggable timeline, elapsed/total time, ±15-second seek, transcript timestamp seek, rate selection, end-state handling, and visible player errors.
 
-Direct downloads reject unsafe local-address literals, excessive files, text responses, and unsafe final redirect destinations. YouTube, TikTok, and Instagram URLs are detected but not falsely claimed as supported. Reliable on-device extraction requires an embedded Python/yt-dlp/JavaScript/muxing stack and unresolved binary/licensing review; this snapshot neither sends links to conversion sites nor bundles unaudited runtimes.
+Direct downloads reject unsafe local-address literals, excessive files, text responses, and unsafe final redirect destinations. YouTube, YouTube Shorts, TikTok, Instagram Reel, and Instagram post URLs now use the embedded CPython/yt-dlp extractor, native URLSession transfers, and AVFoundation adaptive-stream merging. Video, audio, and download-and-transcribe actions converge on the existing library. Authentication, DRM, and access controls are not bypassed. Runtime inputs are pinned and SHA-256 verified by `scripts/prepare-social-runtime.sh`; generated runtime files remain untracked. Live provider behavior and playback still require physical-device validation.
 
 ## Publication boundary
 
@@ -55,4 +55,4 @@ Direct downloads reject unsafe local-address literals, excessive files, text res
 
 ## Source and licensing
 
-Third-party dependencies are retrieved by Swift Package Manager under their respective upstream licenses; their source and model weights are not vendored here. Publication of this snapshot does not itself grant permission to use, modify, or redistribute the first-party source unless the owner adds an explicit license.
+This native application includes Keraunos-derived GPLv3 components and is distributed under GPLv3. See `LICENSE-GPL-3.0.txt` and `THIRD_PARTY_NOTICES.md` for exact sources, revisions, hashes, and other upstream licenses. Model weights are not vendored.

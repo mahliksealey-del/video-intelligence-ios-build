@@ -25,6 +25,9 @@ targets:
     dependencies:
       - package: ArgmaxOSSSwift
         product: WhisperKit
+      - framework: Runtime/PythonResources/Python.xcframework
+        embed: true
+        codeSign: false
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.videointelligence.nativeprototype
@@ -34,6 +37,7 @@ targets:
         SUPPORTS_MACCATALYST: NO
         CODE_SIGN_STYLE: Automatic
         GENERATE_INFOPLIST_FILE: YES
+        SWIFT_OBJC_BRIDGING_HEADER: VideoIntelligenceNative/Runtime/PythonBridge.h
         INFOPLIST_KEY_CFBundleDisplayName: Video Intelligence
         INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: YES
         INFOPLIST_KEY_UIFileSharingEnabled: YES
@@ -45,6 +49,14 @@ targets:
     scheme:
       testTargets:
         - VideoIntelligenceNativeTests
+    postBuildScripts:
+      - name: Install embedded Python standard library
+        script: |
+          set -euo pipefail
+          source "$PROJECT_DIR/Runtime/PythonResources/Python.xcframework/build/utils.sh"
+          rsync -a --delete "$PROJECT_DIR/Runtime/PythonResources/app/" "$CODESIGNING_FOLDER_PATH/app/"
+          rsync -a --delete "$PROJECT_DIR/Runtime/PythonResources/app_packages/" "$CODESIGNING_FOLDER_PATH/app_packages/"
+          install_python "Runtime/PythonResources/Python.xcframework" "Runtime/PythonResources/app" "Runtime/PythonResources/app_packages"
 
   VideoIntelligenceNativeTests:
     type: bundle.unit-test

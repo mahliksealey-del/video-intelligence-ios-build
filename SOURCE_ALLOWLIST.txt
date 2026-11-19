@@ -2,15 +2,20 @@
 .github/workflows/public-build.yml
 .gitignore
 DISCLOSURE_AUDIT.md
+LICENSE-GPL-3.0.txt
 Package.resolved
 README.md
 SOURCE_ALLOWLIST.txt
 SOURCE_PROVENANCE.md
+THIRD_PARTY_NOTICES.md
 VideoIntelligenceNative/App/VideoIntelligenceNativeApp.swift
 VideoIntelligenceNative/Contracts/TranscriptRecord.swift
 VideoIntelligenceNative/Contracts/TranscriptValidation.swift
 VideoIntelligenceNative/Diagnostics/DiagnosticLogger.swift
 VideoIntelligenceNative/Downloads/MediaDownloader.swift
+VideoIntelligenceNative/Downloads/Social/PythonSocialExtractor.swift
+VideoIntelligenceNative/Downloads/Social/SocialExtractionModels.swift
+VideoIntelligenceNative/Downloads/Social/SocialMediaDownloadService.swift
 VideoIntelligenceNative/Export/TranscriptExporter.swift
 VideoIntelligenceNative/Import/AudioImportState.swift
 VideoIntelligenceNative/Import/AudioImportViewModel.swift
@@ -18,6 +23,9 @@ VideoIntelligenceNative/Import/MediaImporting.swift
 VideoIntelligenceNative/Library/LibraryStore.swift
 VideoIntelligenceNative/MediaProcessing/AudioExtractor.swift
 VideoIntelligenceNative/Models/MediaLibraryItem.swift
+VideoIntelligenceNative/Runtime/JSEvaluator.swift
+VideoIntelligenceNative/Runtime/PythonBridge.h
+VideoIntelligenceNative/Runtime/PythonBridge.m
 VideoIntelligenceNative/Storage/LibraryStorage.swift
 VideoIntelligenceNative/Transcription/Transcribing.swift
 VideoIntelligenceNative/Transcription/AccuracyBenchmark.swift
@@ -34,6 +42,7 @@ VideoIntelligenceNativeTests/Fixtures/transcript-record.json
 VideoIntelligenceNativeTests/LibraryStorageTests.swift
 VideoIntelligenceNativeTests/MediaImportTests.swift
 VideoIntelligenceNativeTests/Phase3ReliabilityTests.swift
+VideoIntelligenceNativeTests/SocialExtractionTests.swift
 VideoIntelligenceNativeTests/TranscriptExportTests.swift
 VideoIntelligenceNativeTests/TranscriptRecordContractTests.swift
 VideoIntelligenceNativeTests/TranscriptTimestampTests.swift
@@ -41,6 +50,7 @@ VideoIntelligenceNativeTests/TranscriptionServiceTests.swift
 project.yml
 scripts/audit-public-snapshot.sh
 scripts/install-xcodegen.sh
+scripts/prepare-social-runtime.sh
 scripts/select-simulator.sh
 scripts/verify-build-settings.sh
 scripts/verify-and-package-app.sh

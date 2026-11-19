@@ -4,21 +4,75 @@ struct URLImportView: View {
     @EnvironmentObject private var library: LibraryStore
     @Environment(\.dismiss) private var dismiss
     @State private var value = ""
+    @State private var sourceURL: URL?
+    @State private var formats: [SocialFormatOption] = []
+    @State private var resolved: ResolvedSocialMedia?
+    @State private var isResolving = false
+    @State private var errorMessage: String?
 
     private var provider: MediaProvider? { (try? MediaURLValidator.validate(value)).map(MediaProvider.detect) }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Direct media URL") { TextField("https://example.com/media.mp4", text: $value).textInputAutocapitalization(.never).keyboardType(.URL).autocorrectionDisabled() }
-                if let provider { Section("Detected provider") { LabeledContent("Provider", value: provider.rawValue); if provider != .direct { Text("This provider needs embedded extraction support. This build will not send the link to a third-party conversion service.").foregroundStyle(.orange) } } }
-                Section { Text("Supports accessible HTTP(S) audio and video files. Web pages, authenticated links, streaming manifests, and DRM media are not downloaded.").foregroundStyle(.secondary) }
+                Section("Media URL") {
+                    TextField("YouTube, TikTok, Instagram, or direct media URL", text: $value).textInputAutocapitalization(.never).keyboardType(.URL).autocorrectionDisabled()
+                    if let provider { LabeledContent("Detected", value: provider.rawValue) }
+                }
+                if isResolving { Section { ProgressView("Resolving on this iPhone…") } }
+                if !formats.isEmpty {
+                    Section("Available video formats") {
+                        ForEach(formats) { option in
+                            Button { choose(option) } label: {
+                                HStack { Text("\(option.height)p · \(option.codecLabel)"); Spacer(); if let bytes = option.approximateBytes { Text(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)).foregroundStyle(.secondary) } }
+                            }
+                        }
+                    }
+                }
+                if let resolved {
+                    Section("Ready") {
+                        Text(resolved.title).font(.headline)
+                        Button("Download Video") { start(resolved, mode: .video) }
+                        Button("Download Audio") { start(resolved, mode: .audio) }
+                        Button("Download & Transcribe") { start(resolved, mode: .transcribe) }
+                    }
+                }
+                if let progress = library.socialDownloadProgress {
+                    Section("Downloading") { ProgressView(value: progress); Button("Cancel", role: .destructive) { library.cancelOperation() } }
+                }
+                if let errorMessage { Section { Text(errorMessage).foregroundStyle(.red) } }
+                Section { Text("Extraction and transfer run locally. Private, DRM-protected, unavailable, or authentication-gated media is not bypassed. Download only media you are authorized to save.").font(.footnote).foregroundStyle(.secondary) }
             }
-            .navigationTitle("Download Media")
+            .navigationTitle("Get Media")
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) { Button("Download") { library.importURL(value); dismiss() }.disabled(value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || provider != .direct) }
+                ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button(provider == .direct ? "Download" : "Resolve") { resolve() }.disabled(value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isResolving || library.socialDownloadProgress != nil) }
             }
         }
+    }
+
+    private func resolve() {
+        errorMessage = nil; formats = []; resolved = nil
+        guard provider != .direct else { library.importURL(value); dismiss(); return }
+        isResolving = true
+        Task {
+            do {
+                let (url, listing) = try await library.listSocialFormats(value)
+                sourceURL = url
+                switch listing { case .ready(let media): resolved = media; case .choices(let options): formats = options }
+            } catch { errorMessage = error.localizedDescription }
+            isResolving = false
+        }
+    }
+
+    private func choose(_ option: SocialFormatOption) {
+        guard let sourceURL else { return }
+        isResolving = true; errorMessage = nil
+        Task { do { resolved = try await library.resolveSocial(sourceURL, option: option); formats = [] } catch { errorMessage = error.localizedDescription }; isResolving = false }
+    }
+
+    private func start(_ media: ResolvedSocialMedia, mode: SocialDownloadMode) {
+        guard let sourceURL else { return }
+        library.downloadSocial(media, sourceURL: sourceURL, mode: mode)
     }
 }
