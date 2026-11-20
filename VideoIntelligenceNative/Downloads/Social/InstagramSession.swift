@@ -38,7 +38,10 @@ final class InstagramSession: ObservableObject {
     /// Returns nil for no opted-in session; never sends Instagram cookies to
     /// YouTube, TikTok, or unrelated URL hosts.
     func temporaryCookieFile(for url: URL) async throws -> URL? {
-        guard let host = url.host, Self.matchesInstagram(host) else { return nil }
+        guard let host = url.host?.lowercased(),
+              Self.matchesInstagram(host) || host == "instagr.am" || host == "www.instagr.am" else { return nil }
+        // instagr.am is an official redirect entry point only. The cookie file
+        // still contains ONLY instagram.com-scoped cookies, never alias cookies.
         let all = await dataStore.httpCookieStore.allCookies()
         let cookies = all.filter {
             Self.matchesInstagram($0.domain) &&
