@@ -2,6 +2,37 @@ import XCTest
 @testable import VideoIntelligenceNative
 
 final class UniversalMediaBrowserTests: XCTestCase {
+    func testEditableAddressBarAcceptsHostnamesPathsAndPorts() throws {
+        XCTAssertEqual(
+            try UniversalBrowserAddress.resolve("example.org/watch?v=42").absoluteString,
+            "https://example.org/watch?v=42"
+        )
+        XCTAssertEqual(
+            try UniversalBrowserAddress.resolve(" https://www.example.org/clip ").absoluteString,
+            "https://www.example.org/clip"
+        )
+        XCTAssertEqual(
+            try UniversalBrowserAddress.resolve("example.org:8443/player").absoluteString,
+            "https://example.org:8443/player"
+        )
+        XCTAssertEqual(
+            try UniversalBrowserAddress.resolve("http://example.org/watch").scheme,
+            "http"
+        )
+    }
+
+    func testEditableAddressBarRejectsUnsafeOrInvalidURLs() {
+        for entry in [
+            "", "   ", "javascript:alert(1)", "file:///private/video.mp4",
+            "ftp://example.org/file.mp4", "http://127.0.0.1/video",
+            "http://192.168.1.4/player", "https://localhost/video",
+            "example.org/a path", "https://admin:secret@example.org/private"
+        ] {
+            XCTAssertThrowsError(try UniversalBrowserAddress.resolve(entry),
+                                 "Should reject unsafe address: \(entry)")
+        }
+    }
+
     func testUnknownWebsitesUseBrowserButDirectMediaIsPreserved() throws {
         XCTAssertEqual(MediaResolutionRoute.forURL(try MediaURLValidator.validate("https://forum.example.com/thread/123")), .universalBrowser)
         XCTAssertEqual(MediaResolutionRoute.forURL(try MediaURLValidator.validate("https://files.example.org/clip.mp4?sig=xyz")), .direct)
