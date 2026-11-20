@@ -182,6 +182,26 @@ enum UniversalBrowserPopupPolicy {
     """#
 }
 
+/// Address-bar normalization and validation shared by keyboard Go and button Go.
+/// Accepts HTTPS web addresses without requiring users to type the scheme.
+enum UniversalBrowserAddress {
+    static func resolve(_ typed: String) throws -> URL {
+        let value = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, !value.contains(where: { $0.isWhitespace }) else {
+            throw MediaDownloadError.invalidURL
+        }
+        let hasScheme = value.range(
+            of: #"^[A-Za-z][A-Za-z0-9+.-]*:"#,
+            options: .regularExpression
+        ) != nil
+        let url = try MediaURLValidator.validate(hasScheme ? value : "https://" + value)
+        guard url.user == nil, url.password == nil else {
+            throw MediaDownloadError.invalidURL
+        }
+        return url
+    }
+}
+
 /// Foreground browser allows ordinary website navigation and user-owned sign-in.
 /// Only a user-selected direct video can be handed to the library downloader.
 struct UniversalMediaBrowserView: View {
@@ -191,6 +211,9 @@ struct UniversalMediaBrowserView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var webView: WKWebView?
+    @State private var currentPageURL: URL?
+    @State private var addressText = ""
+    @FocusState private var addressFocused: Bool
     @State private var candidates: [UniversalWebMediaCandidate] = []
     @State private var statusText: String?
     @State private var isInspecting = false
@@ -203,6 +226,25 @@ struct UniversalMediaBrowserView: View {
             VStack(spacing: 8) {
                 Text("Browse or sign in, play the video, then tap Find Video. Only media you select is saved.")
                     .font(.footnote).foregroundStyle(.secondary).padding(.horizontal)
+                HStack(spacing: 8) {
+                    Image(systemName: "globe").foregroundStyle(.secondary)
+                    TextField("Enter website address", text: $addressText)
+                        .font(.footnote)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                        .textContentType(.URL)
+                        .submitLabel(.go)
+                        .focused($addressFocused)
+                        .onSubmit { navigateToAddress() }
+                        .accessibilityLabel("Website address")
+                    Button("Go") { navigateToAddress() }
+                        .font(.footnote.weight(.semibold))
+                        .disabled(webView == nil || addressText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                .padding(10)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
+                .padding(.horizontal)
                 HStack(spacing: 10) {
                     Button { webView?.goBack() } label: { Image(systemName: "chevron.left") }
                         .accessibilityLabel("Back")
@@ -223,6 +265,7 @@ struct UniversalMediaBrowserView: View {
                     Toggle("Stay on Site", isOn: $stayOnSite)
                 }.font(.caption).padding(.horizontal)
                 UniversalBrowserWebView(url: url, webView: $webView,
+                                        pageURL: $currentPageURL,
                                         statusText: $statusText, candidates: $candidates,
                                         scanNonce: $scanNonce, blockAds: blockAds,
                                         stayOnSite: stayOnSite)
@@ -263,9 +306,41 @@ struct UniversalMediaBrowserView: View {
             }
             .navigationTitle("Website Browser")
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear {
+                if addressText.isEmpty { addressText = currentPageURL?.absoluteString ?? url.absoluteString }
+            }
+            .onChange(of: currentPageURL) { latest in
+                if !addressFocused, let latest {
+                    addressText = latest.absoluteString
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
             }
+        }
+    }
+
+    private func navigateToAddress() {
+        guard let webView else { return }
+        do {
+            let destination = try UniversalBrowserAddress.resolve(addressText)
+            addressFocused = false
+            scanNonce = nil
+            candidates = []
+            isInspecting = false
+
+            // The site lock is useful against ad redirects but a deliberately
+            // entered new address should always be a user-authorized pivot.
+            let changesSite = webView.url?.host?.lowercased() != destination.host?.lowercased()
+            if stayOnSite && changesSite {
+                stayOnSite = false
+                statusText = "Opened your requested website. Stay on Site was turned off for navigation; you can enable it again."
+            } else {
+                statusText = nil
+            }
+            webView.load(URLRequest(url: destination))
+        } catch {
+            statusText = "Invalid website address: \(error.localizedDescription)"
         }
     }
 
@@ -339,6 +414,7 @@ struct UniversalMediaBrowserView: View {
 private struct UniversalBrowserWebView: UIViewRepresentable {
     let url: URL
     @Binding var webView: WKWebView?
+    @Binding var pageURL: URL?
     @Binding var statusText: String?
     @Binding var candidates: [UniversalWebMediaCandidate]
     @Binding var scanNonce: String?
@@ -346,9 +422,9 @@ private struct UniversalBrowserWebView: UIViewRepresentable {
     let stayOnSite: Bool
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(statusText: $statusText, candidates: $candidates,
-                    scanNonce: $scanNonce, blockAds: blockAds,
-                    stayOnSite: stayOnSite)
+        Coordinator(statusText: $statusText, pageURL: $pageURL,
+                    candidates: $candidates, scanNonce: $scanNonce,
+                    blockAds: blockAds, stayOnSite: stayOnSite)
     }
 
     func makeUIView(context: Context) -> WKWebView {
@@ -375,16 +451,19 @@ private struct UniversalBrowserWebView: UIViewRepresentable {
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
         private let statusText: Binding<String?>
+        private let pageURL: Binding<URL?>
         private let candidates: Binding<[UniversalWebMediaCandidate]>
         private let scanNonce: Binding<String?>
         private var blockerEnabled: Bool
         private var lockSiteEnabled: Bool
         private var blockerGeneration = 0
 
-        init(statusText: Binding<String?>, candidates: Binding<[UniversalWebMediaCandidate]>,
+        init(statusText: Binding<String?>, pageURL: Binding<URL?>,
+             candidates: Binding<[UniversalWebMediaCandidate]>,
              scanNonce: Binding<String?>, blockAds: Bool,
              stayOnSite: Bool) {
             self.statusText = statusText
+            self.pageURL = pageURL
             self.candidates = candidates
             self.scanNonce = scanNonce
             self.blockerEnabled = blockAds
@@ -457,6 +536,16 @@ private struct UniversalBrowserWebView: UIViewRepresentable {
                      didStartProvisionalNavigation navigation: WKNavigation!) {
             scanNonce.wrappedValue = nil
             candidates.wrappedValue = []
+        }
+
+        func webView(_ webView: WKWebView,
+                     didCommit navigation: WKNavigation!) {
+            pageURL.wrappedValue = webView.url
+        }
+
+        func webView(_ webView: WKWebView,
+                     didFinish navigation: WKNavigation!) {
+            pageURL.wrappedValue = webView.url
         }
 
         func webView(_ webView: WKWebView,
