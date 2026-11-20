@@ -12,6 +12,16 @@ final class YouTubeRangeDownloaderTests: XCTestCase {
         )
     }
 
+    func testYouTubeHTTPFailuresAreNotMisreportedAsCodecErrors() {
+        XCTAssertTrue(YouTubeStreamAccessError.isYouTubeMediaHost("r3---sn.googlevideo.com"))
+        XCTAssertTrue(YouTubeStreamAccessError.isYouTubeMediaHost("googlevideo.com"))
+        XCTAssertFalse(YouTubeStreamAccessError.isYouTubeMediaHost("googlevideo.com.evil.example"))
+        XCTAssertFalse(YouTubeStreamAccessError.isYouTubeMediaHost("v16.tiktokcdn.com"))
+        XCTAssertTrue(YouTubeStreamAccessError(statusCode: 403).localizedDescription.contains("HTTP 403"))
+        XCTAssertTrue(YouTubeStreamAccessError(statusCode: 429).localizedDescription.contains("rate-limiting"))
+        XCTAssertFalse(YouTubeStreamAccessError(statusCode: 403).localizedDescription.contains("compatible codec"))
+    }
+
     func testRangeModeAppliesOnlyToChunkedGooglevideoMedia() {
         XCTAssertTrue(YouTubeRangeDownloader.shouldUse(
             track("https://rr1---sn-123.googlevideo.com/videoplayback?expire=123", chunkSize: 10_485_760)))
