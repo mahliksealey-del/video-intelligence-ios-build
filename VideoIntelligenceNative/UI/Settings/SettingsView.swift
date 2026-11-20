@@ -13,7 +13,7 @@ struct SettingsView: View {
                     Picker("Profile", selection: Binding(get: { library.modelManager.selectedProfile }, set: { library.modelManager.selectedProfile = $0 })) { ForEach(TranscriptionProfile.allCases) { Text($0.title).tag($0) } }
                     Text(library.modelManager.selectedProfile.detail).font(.footnote).foregroundStyle(.secondary)
                     if !TranscriptionModelRequirements.canRun(model: library.modelManager.selectedProfile.model) {
-                        Label("Large V3 Turbo requires at least 8 GB RAM. Select another profile until you upgrade.", systemImage: "iphone.gen3.radiowaves.left.and.right")
+                        Label("This Large model requires at least 8 GB device RAM. Use an 8 GB+ iPhone or select a smaller model.", systemImage: "iphone.gen3.radiowaves.left.and.right")
                             .font(.footnote).foregroundStyle(.orange)
                     }
                 }
@@ -91,7 +91,7 @@ private struct ModelDownloadRow: View {
                     .disabled(!TranscriptionModelRequirements.canRun(model: name))
             }
             if !TranscriptionModelRequirements.canRun(model: name) {
-                Text("For a future iPhone: requires 8 GB+ device RAM. Download is disabled here to protect the working transcription engine.")
+                Text("Requires 8 GB+ device RAM. Download is disabled on this iPhone; the existing models remain available.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }.padding(.vertical, 4)
