@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 import WebKit
 
-/// User-initiated fallback for a TikTok page that the Python HTTP client
+/// User-initiated TikTok browser resolver for a page that the Python HTTP client
 /// cannot read. The site runs in WKWebView on the iPhone, not a third-party API.
 /// Only public page hydration data and its observed signed media URL are read.
 enum TikTokBrowserResolution {
@@ -121,7 +121,7 @@ enum TikTokBrowserResolution {
     """#
 }
 
-/// Foreground WebKit fallback. User sees the real TikTok page before explicitly
+/// Foreground WebKit resolver. User sees the real TikTok page before explicitly
 /// requesting metadata extraction. It never sends video links to a remote resolver.
 struct TikTokBrowserFallbackView: View {
     let url: URL
@@ -135,19 +135,19 @@ struct TikTokBrowserFallbackView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 8) {
-                Text("Let TikTok load the video, then tap Use Video. This uses TikTok's own page on your iPhone.")
+                Text("Play the TikTok video, then tap Download. This uses the same browser session for the actual file transfer.")
                     .font(.footnote).foregroundStyle(.secondary).padding(.horizontal)
                 TikTokBrowserWebView(url: url, webView: $webView, statusText: $statusText)
                 if let statusText {
                     Text(statusText).font(.footnote).foregroundStyle(.red).padding(.horizontal)
                 }
             }
-            .navigationTitle("TikTok Browser")
+            .navigationTitle("TikTok")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(isInspecting ? "Checking…" : "Use Video") { inspect() }
+                    Button(isInspecting ? "Checking…" : "Download") { inspect() }
                         .disabled(webView == nil || isInspecting)
                 }
             }
