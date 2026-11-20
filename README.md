@@ -58,6 +58,12 @@ Direct downloads reject unsafe local-address literals, excessive files, text res
 This native application includes Keraunos-derived GPLv3 components and is distributed under GPLv3. See `LICENSE-GPL-3.0.txt` and `THIRD_PARTY_NOTICES.md` for exact sources, revisions, hashes, and other upstream licenses. Model weights are not vendored.
 
 
+## UMR-3: Editable website address bar (experimental)
+
+The `feature/universal-editable-address-bar-2026-11-20` branch adds an editable website-address field directly above the native Website Browser. Tap the URL, enter another website (`example.com` is automatically normalized to `https://example.com`), and press the keyboard Go key or the visible **Go** button. The WKWebView navigates without dismissing Get Media, preserving the existing browser session and ad filtering. The address tracks committed URLs as you use Back, Reload, redirects, and Open Player; validation rejects non-HTTP(S), private addresses, credentials embedded in the URL, and whitespace. An explicitly entered destination is allowed past **Stay on Site** exactly once, and the toggle switches off automatically when the destination host changes; you may re-enable it after arriving. All-frame video detection, the native Block Ads toggle, TikTok/Instagram/YouTube routing and local models remain unchanged.
+
+This is an ease-of-navigation upgrade, **not** a guarantee that streams unsupported on the previous build (such as some HLS/DASH/MSE or DRM players) become downloadable by navigating to their page. Browser parity with a desktop extractor is subject to separate stream-handling work and physical-device acceptance.
+
 ## UMR-2: Embedded video and built-in ad blocking (experimental)
 
 The **feature/universal-frame-media-detection-2026-11-20** branch extends the successful UMR-1 browser to recognize video inside nested, cross-origin iframe players. After you play a video, tap **Find Video**. A user-initiated per-frame WebKit script collects playable HTTPS links and HLS/DASH manifests. The frame's URL is verified from the WebKit message metadata and an unpredictable scan identifier. If a player link is found without a direct file, tap **Open Player** and try playback / Find Video again. Direct video files still save to the existing library. HLS/DASH export, DRM-protected video and opaque blob/MSE playback are **not promised or implemented in UMR-2**.
