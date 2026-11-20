@@ -9,6 +9,7 @@ enum TikTokBrowserResolution {
     private struct Payload: Decodable {
         let postID: String?
         let pageID: String?
+        let pageURL: String?
         let mediaURL: String?       // backward-compatible with the first prototype
         let mediaURLs: [String]?   // current player first, then TikTok metadata streams
         let title: String?
@@ -40,6 +41,12 @@ enum TikTokBrowserResolution {
             throw SocialExtractionError.unsupported("TikTok's browser played the page but did not expose a supported direct video stream.")
         }
         var headers = ["Referer": "https://www.tiktok.com/"]
+        if let rawPage = payload.pageURL, let page = URL(string: rawPage),
+           page.scheme?.lowercased() == "https",
+           let host = page.host?.lowercased(),
+           (host == "tiktok.com" || host.hasSuffix(".tiktok.com")) {
+            headers["Referer"] = page.absoluteString
+        }
         if let agent = payload.userAgent, !agent.isEmpty, agent.count < 512 {
             headers["User-Agent"] = agent
         }
@@ -105,7 +112,7 @@ enum TikTokBrowserResolution {
       add(og?.content);
 
       return JSON.stringify({
-        postID: String(item.id), pageID,
+        postID: String(item.id), pageID, pageURL: location.href,
         mediaURLs: [...new Set(urls)].slice(0, 12),
         title: String(item.desc || 'TikTok video').slice(0, 100),
         userAgent: navigator.userAgent

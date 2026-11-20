@@ -71,6 +71,34 @@ final class SocialExtractionTests: XCTestCase {
         }
     }
 
+    func testBrowserPrefersPlayedMediaAndCarriesAlternates() throws {
+        let json = #"{"postID":"7705112358586289421","pageID":"7705112358586289421","pageURL":"https://www.tiktok.com/@tester/video/7705112358586289421","mediaURLs":["https://v19-webapp-prime.tiktok.com/playing.mp4","https://v19-webapp-prime.tiktok.com/playing.mp4","https://v19-webapp-prime.tiktok.com/alternate.mp4","https://evil.example/video.mp4"],"userAgent":"WebKit"}"#
+        let media = try TikTokBrowserResolution.decode(json)
+        guard case .progressive(let track) = media.kind else { return XCTFail("Expected progressive") }
+        XCTAssertTrue(track.useBrowserCookies)
+        XCTAssertEqual(track.url.lastPathComponent, "playing.mp4")
+        XCTAssertEqual(track.alternativeURLs.count, 1)
+        XCTAssertEqual(track.alternativeURLs.first?.lastPathComponent, "alternate.mp4")
+        XCTAssertEqual(track.headers["Referer"], "https://www.tiktok.com/@tester/video/7705112358586289421")
+    }
+
+    func testTikTokCookieDomainSeparation() {
+        XCTAssertTrue(TrackDownloadDelegate.isTikTokCookieDomain("www.tiktok.com"))
+        XCTAssertTrue(TrackDownloadDelegate.isTikTokCookieDomain(".tiktok.com"))
+        XCTAssertTrue(TrackDownloadDelegate.isTikTokCookieDomain("v16.tiktokcdn.com"))
+        XCTAssertFalse(TrackDownloadDelegate.isTikTokCookieDomain("tiktok.com.evil.net"))
+        XCTAssertFalse(TrackDownloadDelegate.isTikTokCookieDomain("www.instagram.com"))
+        XCTAssertFalse(TrackDownloadDelegate.isTikTokCookieDomain("youtube.com"))
+    }
+
+    func testOrdinaryExtractorDoesNotUseBrowserCookies() throws {
+        let data = Data(#"{"ok":true,"kind":"progressive","media":{"url":"https://media.example/clip.mp4"}}"#.utf8)
+        let result = try SocialExtractionDecoder.resolved(data)
+        guard case .progressive(let track) = result.kind else { return XCTFail("Expected progressive") }
+        XCTAssertFalse(track.useBrowserCookies)
+        XCTAssertTrue(track.alternativeURLs.isEmpty)
+    }
+
     func testRejectsPrivateResolvedTrack() {
         let data = Data(#"{"ok":true,"kind":"progressive","media":{"url":"http://127.0.0.1/video.mp4","ext":"mp4"}}"#.utf8)
         XCTAssertThrowsError(try SocialExtractionDecoder.resolved(data))
