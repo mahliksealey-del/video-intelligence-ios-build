@@ -16,38 +16,6 @@ struct SocialDownloadResult: Sendable {
     let shouldTranscribe: Bool
 }
 
-/// Protects device storage when a webpage/video CDN returns an unexpectedly huge
-/// media response. The old transfer checked only the *finished* file and could
-/// waste several gigabytes before saying "2 GB limit". This policy checks both
-/// the server's expected size and the bytes actually transferred.
-enum BrowserTransferSizeGuard {
-    enum Origin: Equatable { case serverEstimate, downloaded }
-
-    static func oversized(expected: Int64, downloaded: Int64) -> (bytes: Int64, origin: Origin)? {
-        let maximum = MediaDownloader.maximumBytes
-        if downloaded > maximum { return (downloaded, .downloaded) }
-        if expected > maximum { return (expected, .serverEstimate) }
-        return nil
-    }
-
-    static func error(bytes: Int64, origin: Origin) -> BrowserTransferSizeError {
-        BrowserTransferSizeError(bytes: bytes, origin: origin)
-    }
-}
-
-struct BrowserTransferSizeError: LocalizedError {
-    let bytes: Int64
-    let origin: BrowserTransferSizeGuard.Origin
-
-    var errorDescription: String? {
-        let formatted = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
-        let reason = origin == .serverEstimate
-            ? "The media server reports a \(formatted) response"
-            : "The media download reached \(formatted)"
-        return "\(reason), above Video Intelligence's 2 GB per-download safety limit. This could be a genuinely large file or an unexpected stream response. The download was stopped to protect storage. Try another format or source."
-    }
-}
-
 final class TrackDownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
     private var continuation: CheckedContinuation<URL, Error>?
     private var progress: (@Sendable (Double) -> Void)?
@@ -56,6 +24,7 @@ final class TrackDownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchec
     private var usesGeneralBrowser = false
 
     func download(_ track: SocialMediaTrack, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
+        try DownloadStoragePolicy.check()
         self.progress = progress
         self.usesTikTokBrowser = track.useBrowserCookies
         self.usesGeneralBrowser = track.browserSessionOrigin != nil
@@ -145,9 +114,6 @@ final class TrackDownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchec
         do {
             let size = Int64((try location.resourceValues(forKeys: [.fileSizeKey])).fileSize ?? 0)
             guard size > 0 else { throw MediaDownloadError.unsupportedContent }
-            if let exceeds = BrowserTransferSizeGuard.oversized(expected: -1, downloaded: size) {
-                throw BrowserTransferSizeGuard.error(bytes: exceeds.bytes, origin: exceeds.origin)
-            }
             let destination = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension(finalURL.pathExtension.isEmpty ? "bin" : finalURL.pathExtension)
             try FileManager.default.moveItem(at: location, to: destination)
             continuation?.resume(returning: destination)
@@ -170,15 +136,17 @@ final class TrackDownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchec
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
                     didWriteData bytesWritten: Int64, totalBytesWritten: Int64,
                     totalBytesExpectedToWrite: Int64) {
-        // This callback is dispatched on URLSession's serial delegate queue.
-        // Stop immediately when the expected OR transferred size exceeds the
-        // cap; don't wait until the full oversize file has been downloaded.
-        if let exceeds = BrowserTransferSizeGuard.oversized(
-            expected: totalBytesExpectedToWrite, downloaded: totalBytesWritten) {
+        // No media-size cap: a 3 GB, 20 GB or larger file is allowed.
+        // Check only actual free storage and the bytes still expected,
+        // avoiding a device-full condition during long downloads.
+        let remaining: Int64? = totalBytesExpectedToWrite > 0
+            ? max(0, totalBytesExpectedToWrite - totalBytesWritten) : nil
+        do {
+            try DownloadStoragePolicy.check(remaining: remaining)
+        } catch {
             if let current = continuation {
                 continuation = nil
-                current.resume(throwing: BrowserTransferSizeGuard.error(
-                    bytes: exceeds.bytes, origin: exceeds.origin))
+                current.resume(throwing: error)
                 downloadTask.cancel()
             }
             return
@@ -269,11 +237,10 @@ actor SocialMediaDownloadService {
                         }
                     }
                     guard let playable else {
-                        // With a single stream candidate, a genuine transfer-size
-                        // rejection is actionable: don't bury it underneath the
-                        // generic "provider could not supply a stream" message.
-                        if candidates.count == 1, let sizeError = lastFailure as? BrowserTransferSizeError {
-                            throw sizeError
+                        // Preserve storage errors directly instead of claiming
+                        // an unsupported player/codec when the phone was full.
+                        if let storageError = lastFailure as? DownloadStorageError {
+                            throw storageError
                         }
                         let reason = lastFailure?.localizedDescription ?? "No video stream was available."
                         throw SocialExtractionError.unsupported(
