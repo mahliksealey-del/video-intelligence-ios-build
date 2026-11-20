@@ -115,7 +115,10 @@ final class EmbeddedPlayerAdBlockTests: XCTestCase {
 
     func testNativeAdRulesCompileInWebKit() {
         let compiled = expectation(description: "native ad rule list compiled")
-        WKContentRuleListStore.default().compileContentRuleList(
+        guard let store = WKContentRuleListStore.default() else {
+            return XCTFail("WebKit content rule store unavailable in the simulator")
+        }
+        store.compileContentRuleList(
             forIdentifier: "VideoIntelligenceAdBlockTests",
             encodedContentRuleList: NativeAdBlocker.rulesJSON
         ) { rule, error in
