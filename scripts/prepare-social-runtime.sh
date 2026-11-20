@@ -7,6 +7,13 @@ KERAUNOS_COMMIT="863a436cfc3028f38ff8e1f940a66a3e68c53104"
 KERAUNOS_SHA256="a3c8a353a650ce79b51db58e798d0f81ef6ea34847e7eb4c6bbd532b0f63b8fc"
 YTDLP_TAG="2026.10.26"
 YTDLP_SHA256="21f942d258d25cc4e60b4982a25c423460f0bebb835f38e6dfd1fcb140087f95"
+# yt-dlp 2026.10.26 uses EJS v0.8.0 for YouTube n/sig challenges.
+# The upstream yt-dlp archive contains the core JS but intentionally omits
+# the complete solver library. Without this pinned companion asset the native
+# JavaScriptCore challenge provider cannot supply reliable YouTube formats.
+EJS_TAG="0.8.0"
+EJS_LIB_SHA256="770831df5c46474fbff06732315b28f4fb090e427ca669a51da61e2457d41c82"
+EJS_LIB_SHA3_512="1ee3753a8222fc855f5c39db30a9ccbb7967dbe1fb810e86dc9a89aa073a0907f294c720e9b65427d560a35aa1ce6af19ef854d9126a05ca00afe03f72047733"
 PYTHON_TAG="3.13-b14"
 PYTHON_SHA256="8b5cb76ef8d8a2946052479358eeec9d54b4496cb60920e175ec1489b5cf7963"
 
@@ -59,9 +66,35 @@ test -f "$NEW_PACKAGE/extractor/instagram.py"
 rm -rf "$RUNTIME/app_packages/yt_dlp"
 cp -R "$NEW_PACKAGE" "$RUNTIME/app_packages/yt_dlp"
 
+# Fix the otherwise silent bundled YouTube JS challenge-solver regression:
+# Keraunos' in-process JavaScriptCore provider subclasses EJSBaseJCP. That
+# provider uses the yt-dlp vendored library path. yt-dlp intentionally ships
+# core.js but does not include yt.solver.lib.js in its source release.
+EJS_DIR="$RUNTIME/app_packages/yt_dlp/extractor/youtube/jsc/_builtin/vendor"
+test -f "$EJS_DIR/yt.solver.core.js"
+test ! -f "$EJS_DIR/yt.solver.lib.js"
+test "$(grep -F "VERSION = '$EJS_TAG'" "$EJS_DIR/_info.py" | wc -l | tr -d ' ')" = "1"
+
+curl --fail --location --retry 3 \
+  "https://github.com/yt-dlp/ejs/releases/download/$EJS_TAG/yt.solver.lib.js" \
+  --output "$WORK/yt.solver.lib.js"
+verify "$WORK/yt.solver.lib.js" "$EJS_LIB_SHA256"
+python3 - "$WORK/yt.solver.lib.js" "$EJS_LIB_SHA3_512" <<'PY'
+import hashlib
+import pathlib
+import sys
+source = pathlib.Path(sys.argv[1]).read_bytes()
+actual = hashlib.sha3_512(source).hexdigest()
+if actual != sys.argv[2]:
+    raise SystemExit("EJS solver-library hash mismatch against yt-dlp's vendor manifest")
+PY
+install -m 0644 "$WORK/yt.solver.lib.js" "$EJS_DIR/yt.solver.lib.js"
+test -s "$EJS_DIR/yt.solver.lib.js"
+
 python3 scripts/patch-social-runtime.py "$RUNTIME/app/keraunos_extract.py"
 test -f "$RUNTIME/app/keraunos_extract.py"
 test -f "$RUNTIME/app/cacert.pem"
 test -f "$RUNTIME/app_packages/yt_dlp/version.py"
+test -s "$RUNTIME/app_packages/yt_dlp/extractor/youtube/jsc/_builtin/vendor/yt.solver.lib.js"
 test -d "$RUNTIME/Python.xcframework"
 echo "Verified embedded social runtime assets."
