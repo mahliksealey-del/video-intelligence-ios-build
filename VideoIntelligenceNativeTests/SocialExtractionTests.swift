@@ -54,6 +54,44 @@ final class SocialExtractionTests: XCTestCase {
         XCTAssertEqual(MediaResolutionRoute.forProvider(nil), .direct)
     }
 
+    func testAllSupportedSocialLinkShapesTakeDedicatedRoute() throws {
+        let cases: [(String, MediaProvider, MediaResolutionRoute)] = [
+            ("https://www.youtube.com/watch?v=dQw4w9WgXcQ", .youtube, .extractor),
+            ("https://m.youtube.com/watch?v=dQw4w9WgXcQ", .youtube, .extractor),
+            ("https://youtube.com/shorts/dQw4w9WgXcQ", .youtube, .extractor),
+            ("https://www.youtube.com/shorts/dQw4w9WgXcQ?feature=share", .youtube, .extractor),
+            ("https://youtu.be/dQw4w9WgXcQ", .youtube, .extractor),
+            ("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ", .youtube, .extractor),
+            ("https://www.instagram.com/reel/example/", .instagram, .extractor),
+            ("https://www.instagram.com/reels/example/", .instagram, .extractor),
+            ("https://www.instagram.com/p/example/", .instagram, .extractor),
+            ("https://instagr.am/p/example/", .instagram, .extractor),
+            ("https://www.tiktok.com/@tester/video/7705112358586289421", .tiktok, .browser),
+            ("https://vm.tiktok.com/abcd1234/", .tiktok, .browser),
+            ("https://vt.tiktok.com/abcd1234/", .tiktok, .browser),
+            ("https://www.tiktok.com/t/ZPNLLmuU9/", .tiktok, .browser)
+        ]
+        for (raw, expected, route) in cases {
+            let url = try UniversalBrowserAddress.resolve(raw)
+            XCTAssertEqual(MediaProvider.detect(url), expected, "Provider: \(raw)")
+            XCTAssertEqual(MediaResolutionRoute.forURL(url), route, "Route: \(raw)")
+        }
+    }
+
+    func testUnknownWebsitesDoNotAccidentallyBecomeSocialProviders() throws {
+        for raw in [
+            "https://youtube.com.evil.example/video",
+            "https://youtube-nocookie.com.evil.example/embed/123",
+            "https://instagr.am.evil.example/p/abc",
+            "https://tiktok.com.evil.example/video/123",
+            "https://videos.example.com/player"
+        ] {
+            let url = try MediaURLValidator.validate(raw)
+            XCTAssertEqual(MediaProvider.detect(url), .direct, "Must remain generic: \(raw)")
+            XCTAssertEqual(MediaResolutionRoute.forURL(url), .universalBrowser)
+        }
+    }
+
     func testProviderDetectionRejectsSuffixImpostors() throws {
         XCTAssertEqual(MediaProvider.detect(try MediaURLValidator.validate("https://www.tiktok.com/t/ZPNLLmuU9/")), .tiktok)
         XCTAssertEqual(MediaProvider.detect(try MediaURLValidator.validate("https://www.instagram.com/reel/sample/")), .instagram)
