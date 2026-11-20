@@ -196,6 +196,7 @@ struct UniversalMediaBrowserView: View {
     @State private var isInspecting = false
     @State private var scanNonce: String?
     @AppStorage("VIWebsiteAdBlockingEnabled") private var blockAds = true
+    @State private var stayOnSite = false
 
     var body: some View {
         NavigationStack {
@@ -212,22 +213,19 @@ struct UniversalMediaBrowserView: View {
                     Button("Dismiss Popup") { dismissPopup() }
                         .disabled(webView == nil)
                         .font(.footnote)
-                    Button(blockAds ? "Ads On" : "Ads Off") {
-                        blockAds.toggle()
-                        candidates = []
-                        statusText = blockAds
-                            ? "Ad blocking enabled. The webpage will reload."
-                            : "Ad blocking disabled for compatibility. The webpage will reload."
-                    }.font(.footnote)
-                     .accessibilityLabel(blockAds ? "Turn ad blocking off" : "Turn ad blocking on")
-                    Spacer(minLength: 0)
+                     Spacer(minLength: 0)
                     Button(isInspecting ? "Checking…" : "Find Video") { inspect() }
                         .disabled(webView == nil || isInspecting)
                         .buttonStyle(.borderedProminent)
                 }.padding(.horizontal)
+                HStack(spacing: 16) {
+                    Toggle("Block Ads", isOn: $blockAds)
+                    Toggle("Stay on Site", isOn: $stayOnSite)
+                }.font(.caption).padding(.horizontal)
                 UniversalBrowserWebView(url: url, webView: $webView,
                                         statusText: $statusText, candidates: $candidates,
-                                        scanNonce: $scanNonce, blockAds: blockAds)
+                                        scanNonce: $scanNonce, blockAds: blockAds,
+                                        stayOnSite: stayOnSite)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 if !candidates.isEmpty {
                     ScrollView {
@@ -345,10 +343,12 @@ private struct UniversalBrowserWebView: UIViewRepresentable {
     @Binding var candidates: [UniversalWebMediaCandidate]
     @Binding var scanNonce: String?
     let blockAds: Bool
+    let stayOnSite: Bool
 
     func makeCoordinator() -> Coordinator {
         Coordinator(statusText: $statusText, candidates: $candidates,
-                    scanNonce: $scanNonce, blockAds: blockAds)
+                    scanNonce: $scanNonce, blockAds: blockAds,
+                    stayOnSite: stayOnSite)
     }
 
     func makeUIView(context: Context) -> WKWebView {
@@ -370,6 +370,7 @@ private struct UniversalBrowserWebView: UIViewRepresentable {
 
     func updateUIView(_ uiView: WKWebView, context: Context) {
         context.coordinator.updateBlocker(uiView, enabled: blockAds)
+        context.coordinator.updateSiteLock(enabled: stayOnSite)
     }
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
@@ -377,18 +378,25 @@ private struct UniversalBrowserWebView: UIViewRepresentable {
         private let candidates: Binding<[UniversalWebMediaCandidate]>
         private let scanNonce: Binding<String?>
         private var blockerEnabled: Bool
+        private var lockSiteEnabled: Bool
         private var blockerGeneration = 0
 
         init(statusText: Binding<String?>, candidates: Binding<[UniversalWebMediaCandidate]>,
-             scanNonce: Binding<String?>, blockAds: Bool) {
+             scanNonce: Binding<String?>, blockAds: Bool,
+             stayOnSite: Bool) {
             self.statusText = statusText
             self.candidates = candidates
             self.scanNonce = scanNonce
             self.blockerEnabled = blockAds
+            self.lockSiteEnabled = stayOnSite
         }
 
         func configureBlocker(_ webView: WKWebView, enabled: Bool, initialURL: URL) {
             applyBlocker(webView, enabled: enabled, initialURL: initialURL)
+        }
+
+        func updateSiteLock(enabled: Bool) {
+            lockSiteEnabled = enabled
         }
 
         func updateBlocker(_ webView: WKWebView, enabled: Bool) {
@@ -449,6 +457,21 @@ private struct UniversalBrowserWebView: UIViewRepresentable {
                      didStartProvisionalNavigation navigation: WKNavigation!) {
             scanNonce.wrappedValue = nil
             candidates.wrappedValue = []
+        }
+
+        func webView(_ webView: WKWebView,
+                     decidePolicyFor navigationAction: WKNavigationAction,
+                     decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+            if VideoSiteNavigationLock.shouldBlock(
+                currentPage: webView.url,
+                nextPage: navigationAction.request.url,
+                isMainFrame: navigationAction.targetFrame?.isMainFrame == true,
+                enabled: lockSiteEnabled) {
+                statusText.wrappedValue = "Stay on Site blocked an external redirect. Turn it off temporarily for sign-in or legitimate links."
+                decisionHandler(.cancel)
+            } else {
+                decisionHandler(.allow)
+            }
         }
 
         func webView(_ webView: WKWebView,
