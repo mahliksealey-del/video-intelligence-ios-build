@@ -58,6 +58,14 @@ Direct downloads reject unsafe local-address literals, excessive files, text res
 This native application includes Keraunos-derived GPLv3 components and is distributed under GPLv3. See `LICENSE-GPL-3.0.txt` and `THIRD_PARTY_NOTICES.md` for exact sources, revisions, hashes, and other upstream licenses. Model weights are not vendored.
 
 
+## YouTube-specific format and player-client repair (2026-11-20)
+
+The previous provider-repair build successfully compiled but **never demonstrated a real iPhone YouTube/Shorts download**. A new review found that Keraunos's pinned `keraunos_extract.py` forced the older YouTube player clients `tv`, `tv_embedded`, `android_vr` in **both** the format listing and resolution code. yt-dlp `2026.10.26` actually defaults to `tv_samsung`, `visionos`, `web` (or `visionos` if JS solving is unavailable), and makes that choice dynamically based on provider availability. We now remove the forced override at verified runtime preparation and use the official yt-dlp defaults, without altering Instagram or TikTok.
+
+A new offline contract test imports the exact patched Python package, validates that `keraunos_youtube_jsc` registers, asserts yt-dlp's 2026.10.26 default-client configuration, and tests **both** regular YouTube and Shorts URL shapes with independent fake extractor responses. It **does not** contact YouTube or prove downloads work. We also report Googlevideo HTTP 401/403/429 distinctly rather than telling users they have an incompatible codec, and show YouTube-specific access guidance rather than an irrelevant Instagram sign-in suggestion.
+
+YouTube's contemporary delivery still varies by video, PO tokens, account, client, and SABR/HLS support. Some streams may remain unavailable to the app without further implementation; DRM or access restrictions are not bypassed. This candidate is intended for **real-iPhone acceptance**, and the last successful build is preserved separately.
+
 ## No fixed media download limit (2026-11-20)
 
 The earlier 2 GB limit in `MediaDownloader.maximumBytes` was an app-imposed restriction, **not an iOS maximum**. It caused an observed iPhone browser download to fail after Find Video found one stream. This experimental follow-up **removes that limit** from ordinary direct media downloads, browser/TikTok/Instagram downloads, and the Googlevideo range-downloader. There is also no longer an arbitrary fixed number of allowable YouTube chunks. Users can save multi-gigabyte files, limited only by *actual available on-device storage*, filesystem capabilities and a successfully accessible/playable source.
