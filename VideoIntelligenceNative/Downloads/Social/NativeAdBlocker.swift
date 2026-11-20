@@ -77,3 +77,21 @@ enum NativeAdBlocker {
         }
     }
 }
+
+
+/// Explicit navigation guard for video pages where tapping Play repeatedly
+/// redirects the main browser to a third-party advertising site. This is OFF
+/// by default, to preserve real logins and normal navigation. It never affects
+/// subframe media URLs or video CDN requests.
+enum VideoSiteNavigationLock {
+    static func shouldBlock(currentPage: URL?, nextPage: URL?,
+                            isMainFrame: Bool, enabled: Bool) -> Bool {
+        guard enabled, isMainFrame,
+              let sourceHost = currentPage?.host?.lowercased(),
+              let nextPage,
+              nextPage.scheme?.lowercased() == "https",
+              let targetHost = nextPage.host?.lowercased(),
+              URLSafetyPolicy.isPublic(nextPage) else { return false }
+        return sourceHost != targetHost
+    }
+}
