@@ -13,6 +13,7 @@ struct URLImportView: View {
     @State private var resolveStartedAt: Date?
     @State private var errorMessage: String?
     @State private var showTikTokBrowser = false
+    @State private var tikTokMode: SocialDownloadMode = .video
 
     private var provider: MediaProvider? { (try? MediaURLValidator.validate(value)).map(MediaProvider.detect) }
 
@@ -22,6 +23,17 @@ struct URLImportView: View {
                 Section("Media URL") {
                     TextField("YouTube, TikTok, Instagram, or direct media URL", text: $value).textInputAutocapitalization(.never).keyboardType(.URL).autocorrectionDisabled()
                     if let provider { LabeledContent("Detected", value: provider.rawValue) }
+                }
+                if provider == .tiktok && resolved == nil {
+                    Section("TikTok download") {
+                        Picker("Save as", selection: $tikTokMode) {
+                            ForEach(SocialDownloadMode.allCases) { mode in
+                                Text(mode.rawValue).tag(mode)
+                            }
+                        }
+                        Text("TikTok opens in the app's browser so the video can load with its existing session. Play it, then tap Download.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
                 }
                 if provider == .instagram {
                     Section("Instagram account") {
@@ -89,9 +101,7 @@ struct URLImportView: View {
                 if let errorMessage {
                     Section {
                         Text(errorMessage).foregroundStyle(.red)
-                        if provider == .tiktok {
-                            Button("Try TikTok Browser Fallback") { showTikTokBrowser = true }
-                        }
+
                     }
                 }
                 Section { Text("Extraction and transfer run locally. Private, DRM-protected, unavailable, or authentication-gated media is not bypassed. Download only media you are authorized to save.").font(.footnote).foregroundStyle(.secondary) }
@@ -104,6 +114,9 @@ struct URLImportView: View {
                         formats = []
                         resolved = media
                         errorMessage = nil
+                        // User explicitly selected the download mode and tapped
+                        // Download in the visible TikTok browser.
+                        library.downloadSocial(media, sourceURL: url, mode: tikTokMode)
                     }
                 }
             }
@@ -113,7 +126,7 @@ struct URLImportView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) { Button(provider == .direct ? "Download" : "Resolve") { resolve() }.disabled(value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isResolving || library.socialDownloadProgress != nil) }
+                ToolbarItem(placement: .confirmationAction) { Button(provider == .direct ? "Download" : provider == .tiktok ? "Open TikTok" : "Resolve") { resolve() }.disabled(value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isResolving || library.socialDownloadProgress != nil) }
             }
         }
     }
@@ -121,6 +134,17 @@ struct URLImportView: View {
     private func resolve() {
         errorMessage = nil; formats = []; resolved = nil
         guard provider != .direct else { library.importURL(value); dismiss(); return }
+        if provider == .tiktok {
+            do {
+                // The WebKit browser path is the device-proven TikTok resolver.
+                // Do not run the failing Python webpage request first.
+                sourceURL = try MediaURLValidator.validate(value)
+                showTikTokBrowser = true
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            return
+        }
         isResolving = true
         resolveStartedAt = Date()
         Task {
