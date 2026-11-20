@@ -44,7 +44,7 @@ enum NativeAdBlocker {
                 .replacingOccurrences(of: ".", with: #"\."#)
             return [
                 "trigger": [
-                    "url-filter": #"^https?://([^/]+\.)?"# + escaped + #"([/:?#]|$)"#,
+                    "url-filter": #"^https?://([^/]+\.)?"# + escaped + #"/"#,
                     "load-type": ["third-party"],
                     // Avoid blocking video and document by default.
                     "resource-type": ["script", "image", "raw", "popup"]
