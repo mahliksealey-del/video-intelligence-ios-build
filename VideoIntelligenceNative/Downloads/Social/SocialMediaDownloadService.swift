@@ -91,9 +91,15 @@ final class TrackDownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchec
             return
         }
         if !(200...299).contains(response.statusCode) {
-            let error: Error = usesTikTokBrowser
-                ? SocialExtractionError.unsupported("TikTok's media endpoint returned HTTP \(response.statusCode) to the iPhone download request.")
-                : MediaDownloadError.unsupportedContent
+            let error: Error
+            if YouTubeStreamAccessError.isYouTubeMediaHost(finalURL.host) {
+                error = YouTubeStreamAccessError(statusCode: response.statusCode)
+            } else if usesTikTokBrowser {
+                error = SocialExtractionError.unsupported(
+                    "TikTok's media endpoint returned HTTP \(response.statusCode) to the iPhone download request.")
+            } else {
+                error = MediaDownloadError.unsupportedContent
+            }
             continuation?.resume(throwing: error)
             continuation = nil
             return
