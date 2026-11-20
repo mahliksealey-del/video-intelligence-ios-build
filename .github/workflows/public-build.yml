@@ -1,7 +1,7 @@
 name: Video Intelligence Public iOS Build
 
 on:
-  # UMR-2 WebKit optional-store compatibility rebuild gate (2026-11-20): user-driven close + popup-window isolation.
+  # UMR-2 WebKit regex compatibility acceptance build (2026-11-20): user-driven close + popup-window isolation.
   # One-off CI gate for this experimental branch. Only this workflow-file
   # change triggers a push build; ordinary source edits remain manual.
   push:
