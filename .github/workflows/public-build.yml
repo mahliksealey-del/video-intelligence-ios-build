@@ -1,7 +1,7 @@
 name: Video Intelligence Public iOS Build
 
 on:
-  # Social provider routing + bundled EJS + bounded YouTube transfer regression build (2026-11-20).
+  # No artificial file-size ceiling: full iOS size-cap-removal regression build (2026-11-20).
   # One-off CI gate for this experimental branch. Only this workflow-file
   # change triggers a push build; ordinary source edits remain manual.
   push:
@@ -11,6 +11,7 @@ on:
       - feature/universal-frame-media-detection-2026-11-20
       - feature/universal-editable-address-bar-2026-11-20
       - fix/social-provider-download-routing-ejs-2026-11-20
+      - fix/browser-oversized-stream-diagnostics-2026-11-20
     paths:
       - .github/workflows/public-build.yml
   workflow_dispatch:
