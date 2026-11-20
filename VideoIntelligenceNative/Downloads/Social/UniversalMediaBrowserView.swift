@@ -209,6 +209,9 @@ struct UniversalMediaBrowserView: View {
     let url: URL
     let mode: SocialDownloadMode
     let onResolved: (ResolvedSocialMedia, URL) -> Void
+    // Dedicated extraction for YouTube/Shorts and Instagram, or the working
+    // TikTok browser, must supersede generic HTML video discovery.
+    let onProviderLink: (URL, SocialDownloadMode) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var webView: WKWebView?
@@ -222,6 +225,13 @@ struct UniversalMediaBrowserView: View {
     @State private var scanNonce: String?
     @AppStorage("VIWebsiteAdBlockingEnabled") private var blockAds = true
     @State private var stayOnSite = false
+
+    private var providerPage: (url: URL, provider: MediaProvider)? {
+        guard let page = currentPageURL ?? webView?.url,
+              (try? MediaURLValidator.validate(page.absoluteString)) != nil else { return nil }
+        let detected = MediaProvider.detect(page)
+        return detected == .direct ? nil : (page, detected)
+    }
 
     var body: some View {
         NavigationStack {
@@ -262,6 +272,18 @@ struct UniversalMediaBrowserView: View {
                         .disabled(webView == nil || isInspecting)
                         .buttonStyle(.borderedProminent)
                 }.padding(.horizontal)
+                if let known = providerPage {
+                    HStack(spacing: 8) {
+                        Label("\(known.provider.rawValue) detected", systemImage: "arrow.down.circle")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Use \(known.provider.rawValue) Downloader") { useProviderDownloader() }
+                            .font(.footnote.weight(.semibold))
+                            .buttonStyle(.borderedProminent)
+                    }
+                    .padding(.horizontal)
+                }
                 HStack(spacing: 16) {
                     Toggle("Block Ads", isOn: $blockAds)
                     Toggle("Stay on Site", isOn: $stayOnSite)
@@ -362,6 +384,13 @@ struct UniversalMediaBrowserView: View {
     }
 
     private func inspect() {
+        // YouTube's SABR/JS challenge and Instagram/TikTok provider workflows
+        // are not ordinary public HTML5 video URLs. Dispatch to their dedicated
+        // routes instead of returning "No media found" from the generic probe.
+        if providerPage != nil {
+            useProviderDownloader()
+            return
+        }
         guard let webView, let page = webView.url else { return }
         isInspecting = true
         statusText = "Scanning this page and its embedded players…"
@@ -392,6 +421,14 @@ struct UniversalMediaBrowserView: View {
                 }
             }
         }
+    }
+
+    private func useProviderDownloader() {
+        guard let known = providerPage else { return }
+        scanNonce = nil
+        candidates = []
+        onProviderLink(known.url, mode)
+        dismiss()
     }
 
     private func openEmbedded(_ candidate: UniversalWebMediaCandidate) {
