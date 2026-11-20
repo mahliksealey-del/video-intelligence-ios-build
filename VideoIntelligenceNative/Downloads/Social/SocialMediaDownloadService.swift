@@ -175,6 +175,16 @@ actor SocialMediaDownloadService {
     func listFormats(_ url: URL) async throws -> SocialFormatListing { try await extractor.listFormats(url) }
     func resolve(_ url: URL, option: SocialFormatOption?) async throws -> ResolvedSocialMedia { try await extractor.resolve(url, option: option) }
 
+    private func fetchTrack(_ track: SocialMediaTrack,
+                            progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
+        // The embedded extractor supplies the intended Googlevideo chunk size.
+        // Never enable this path for Instagram, TikTok, or ordinary browser URLs.
+        if YouTubeRangeDownloader.shouldUse(track) {
+            return try await YouTubeRangeDownloader().download(track, progress: progress)
+        }
+        return try await TrackDownloadDelegate().download(track, progress: progress)
+    }
+
     func download(_ media: ResolvedSocialMedia, sourceURL: URL, mode: SocialDownloadMode, progress: @escaping @Sendable (Double) -> Void) async throws -> SocialDownloadResult {
         let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
@@ -221,17 +231,17 @@ actor SocialMediaDownloadService {
                     }
                     progress(1)
                 } else {
-                    let downloaded = try await TrackDownloadDelegate().download(track, progress: progress)
+                    let downloaded = try await fetchTrack(track, progress: progress)
                     if mode == .audio || mode == .transcribe { output = try await extractAudio(from: downloaded, in: temporary) }
                     else { output = temporary.appendingPathComponent("download.mp4"); try FileManager.default.moveItem(at: downloaded, to: output) }
                 }
             case .adaptive(let video, let audio):
                 if mode == .audio || mode == .transcribe {
-                    let downloaded = try await TrackDownloadDelegate().download(audio, progress: progress)
+                    let downloaded = try await fetchTrack(audio, progress: progress)
                     output = temporary.appendingPathComponent("download.m4a"); try FileManager.default.moveItem(at: downloaded, to: output)
                 } else {
-                    let videoFile = try await TrackDownloadDelegate().download(video) { progress($0 * 0.45) }
-                    let audioFile = try await TrackDownloadDelegate().download(audio) { progress(0.45 + $0 * 0.45) }
+                    let videoFile = try await fetchTrack(video) { progress($0 * 0.45) }
+                    let audioFile = try await fetchTrack(audio) { progress(0.45 + $0 * 0.45) }
                     output = temporary.appendingPathComponent("download.mp4")
                     try await SocialMediaMerger().merge(video: videoFile, audio: audioFile, output: output)
                     progress(1)
