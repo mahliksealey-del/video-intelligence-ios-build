@@ -25,6 +25,25 @@ final class MediaImportTests: XCTestCase {
         }
     }
 
+    func testNoTwoGigabyteFileSizeCapWhenPhoneHasSpace() {
+        let tenGB: Int64 = 10_000_000_000
+        let twentyGB: Int64 = 20_000_000_000
+        XCTAssertTrue(DownloadStoragePolicy.allows(available: twentyGB, remaining: tenGB))
+        XCTAssertTrue(DownloadStoragePolicy.allows(available: twentyGB, remaining: nil))
+        XCTAssertTrue(DownloadStoragePolicy.allows(available: twentyGB, remaining: -1))
+        XCTAssertTrue(DownloadStoragePolicy.allows(available: twentyGB, remaining: 3_000_000_000))
+    }
+
+    func testStorageErrorOnlyWhenActualFreeSpaceIsInsufficient() {
+        let reserve = DownloadStoragePolicy.systemReserveBytes
+        XCTAssertFalse(DownloadStoragePolicy.allows(available: reserve, remaining: nil))
+        XCTAssertFalse(DownloadStoragePolicy.allows(available: reserve + 2_000_000, remaining: 4_000_000))
+        XCTAssertTrue(DownloadStoragePolicy.allows(available: reserve + 10_000_000, remaining: 4_000_000))
+        let error = DownloadStorageError(available: reserve + 2_000_000, remaining: 4_000_000)
+        XCTAssertTrue(error.localizedDescription.contains("Not enough free iPhone storage"))
+        XCTAssertTrue(error.localizedDescription.contains("no fixed file-size limit"))
+    }
+
     func testDetectsSocialProvidersWithoutClaimingDirectMedia() throws {
         XCTAssertEqual(MediaProvider.detect(try MediaURLValidator.validate("https://youtu.be/example")), .youtube)
         XCTAssertEqual(MediaProvider.detect(try MediaURLValidator.validate("https://www.tiktok.com/@user/video/1")), .tiktok)
