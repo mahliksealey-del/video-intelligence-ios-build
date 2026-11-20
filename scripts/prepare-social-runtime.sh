@@ -106,6 +106,7 @@ print("Verified bundled EJS core/library and native JavaScriptCore provider.")
 PY
 
 python3 scripts/patch-social-runtime.py "$RUNTIME/app/keraunos_extract.py"
+PYTHONPATH="$RUNTIME/app_packages:$RUNTIME/app" python3 scripts/test-youtube-provider-path.py
 test -f "$RUNTIME/app/keraunos_extract.py"
 test -f "$RUNTIME/app/cacert.pem"
 test -f "$RUNTIME/app_packages/yt_dlp/version.py"
