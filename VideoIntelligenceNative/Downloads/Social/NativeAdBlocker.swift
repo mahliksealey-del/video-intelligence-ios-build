@@ -89,7 +89,7 @@ enum VideoSiteNavigationLock {
         guard enabled, isMainFrame,
               let sourceHost = currentPage?.host?.lowercased(),
               let nextPage,
-              nextPage.scheme?.lowercased() == "https",
+              ["http", "https"].contains(nextPage.scheme?.lowercased() ?? ""),
               let targetHost = nextPage.host?.lowercased(),
               URLSafetyPolicy.isPublic(nextPage) else { return false }
         return sourceHost != targetHost
