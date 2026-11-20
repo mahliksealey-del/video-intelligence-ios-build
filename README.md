@@ -56,3 +56,14 @@ Direct downloads reject unsafe local-address literals, excessive files, text res
 ## Source and licensing
 
 This native application includes Keraunos-derived GPLv3 components and is distributed under GPLv3. See `LICENSE-GPL-3.0.txt` and `THIRD_PARTY_NOTICES.md` for exact sources, revisions, hashes, and other upstream licenses. Model weights are not vendored.
+
+
+## Experimental full-precision Whisper Large V3 (opt-in)
+
+Branch `feature/whisper-full-large-v3-2026-11-20` adds a separate **Large V3 (Full Precision)** transcription profile using Argmax Core ML folder `openai_whisper-large-v3` (approximately 3.09 GB). It remains distinct from Medium English (`medium.en`, around 1.53 GB), the compressed full-Large-V3 model (`openai_whisper-large-v3_947MB`, **not** selected here), and the existing compressed Large V3 Turbo profile (`large-v3-v20240930_626MB`, approximately 626 MB). Model weights are downloaded by the user from the iPhone Settings screen and are **never included in the IPA**.
+
+Full Large V3 and the compressed Turbo experiment require a device reporting at least 8 GB of physical RAM and free storage preflight of 8 GB / 3 GB respectively. Medium has a separate 4 GB free-storage preflight; base.en and small.en remain the default options. These are conservative eligibility checks, not proof that the larger models will load or finish on every device. An 8 GB device may still be terminated for memory pressure. Compare a representative short clip on all profiles before using full Large V3 for long recordings.
+
+**Build/test procedure:** Manually dispatch **Video Intelligence Public iOS Build** against the `feature/whisper-full-large-v3-2026-11-20` branch with `dependency_mode=locked`. After tests, ARM64 build and unsigned IPA packaging pass, download the build artifact, extract `VideoIntelligence-unsigned.ipa`, and sign/install with Sideloadly. Keep the existing working release backed up until the physical device accepts download, inference, transcription quality, export and app restarts. Do not promote this research branch to stable without device evidence.
+
+**Implementation note:** The pinned WhisperKit 1.1.1 downloader uses glob matching. Passing the exact prefixed model folder `openai_whisper-large-v3` is critical: the shorter string `large-v3` can ambiguously match full, compressed and Turbo model folders. The app's cached-model search also requires exact folder identity.
