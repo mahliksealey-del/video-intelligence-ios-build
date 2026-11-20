@@ -46,6 +46,20 @@ enum MediaProvider: String, Sendable {
     }
 }
 
+enum MediaResolutionRoute: Equatable {
+    case direct
+    case browser
+    case extractor
+
+    static func forProvider(_ provider: MediaProvider?) -> MediaResolutionRoute {
+        switch provider {
+        case .direct, .none: return .direct
+        case .tiktok: return .browser
+        case .youtube, .instagram: return .extractor
+        }
+    }
+}
+
 enum URLSafetyPolicy {
     static func isPublic(_ url: URL) -> Bool {
         guard let host = url.host?.lowercased(), host != "localhost", !host.hasSuffix(".local") else { return false }

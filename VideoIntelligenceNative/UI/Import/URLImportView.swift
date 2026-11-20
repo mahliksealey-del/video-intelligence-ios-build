@@ -70,7 +70,7 @@ struct URLImportView: View {
                         }
                     }
                 }
-                if let resolved {
+                if let resolved, library.socialDownloadProgress == nil {
                     Section("Ready") {
                         Text(resolved.title).font(.headline)
                         Button("Download Video") { start(resolved, mode: .video) }
@@ -112,7 +112,7 @@ struct URLImportView: View {
                     TikTokBrowserFallbackView(url: url) { media in
                         sourceURL = url
                         formats = []
-                        resolved = media
+                        resolved = nil
                         errorMessage = nil
                         // User explicitly selected the download mode and tapped
                         // Download in the visible TikTok browser.
@@ -133,17 +133,23 @@ struct URLImportView: View {
 
     private func resolve() {
         errorMessage = nil; formats = []; resolved = nil
-        guard provider != .direct else { library.importURL(value); dismiss(); return }
-        if provider == .tiktok {
+        switch MediaResolutionRoute.forProvider(provider) {
+        case .direct:
+            library.importURL(value)
+            dismiss()
+            return
+        case .browser:
             do {
-                // The WebKit browser path is the device-proven TikTok resolver.
-                // Do not run the failing Python webpage request first.
+                // The user-tested TikTok browser method is the primary route.
+                // Skip the Python webpage call that consistently displays an error.
                 sourceURL = try MediaURLValidator.validate(value)
                 showTikTokBrowser = true
             } catch {
                 errorMessage = error.localizedDescription
             }
             return
+        case .extractor:
+            break
         }
         isResolving = true
         resolveStartedAt = Date()

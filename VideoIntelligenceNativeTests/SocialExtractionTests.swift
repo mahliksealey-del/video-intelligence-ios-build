@@ -46,6 +46,14 @@ final class SocialExtractionTests: XCTestCase {
         XCTAssertNil(spoofedCookieFile)
     }
 
+    func testTikTokUsesWorkingBrowserAsPrimaryResolver() {
+        XCTAssertEqual(MediaResolutionRoute.forProvider(.tiktok), .browser)
+        XCTAssertEqual(MediaResolutionRoute.forProvider(.youtube), .extractor)
+        XCTAssertEqual(MediaResolutionRoute.forProvider(.instagram), .extractor)
+        XCTAssertEqual(MediaResolutionRoute.forProvider(.direct), .direct)
+        XCTAssertEqual(MediaResolutionRoute.forProvider(nil), .direct)
+    }
+
     func testProviderDetectionRejectsSuffixImpostors() throws {
         XCTAssertEqual(MediaProvider.detect(try MediaURLValidator.validate("https://www.tiktok.com/t/ZPNLLmuU9/")), .tiktok)
         XCTAssertEqual(MediaProvider.detect(try MediaURLValidator.validate("https://www.instagram.com/reel/sample/")), .instagram)
