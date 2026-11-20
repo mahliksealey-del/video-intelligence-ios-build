@@ -76,6 +76,10 @@ final class LibraryStore: ObservableObject {
     }
 
     func transcribe(_ item: MediaLibraryItem) {
+        guard TranscriptionModelRequirements.canRun(model: modelManager.selectedProfile.model) else {
+            errorMessage = "The selected Large V3 Turbo model needs at least 8 GB device RAM. Switch to Fast, Balanced, Accurate, or Medium on this iPhone."
+            return
+        }
         guard let modelFolder = modelManager.modelFolder else {
             errorMessage = "Download and validate the \(modelManager.selectedProfile.model) model in Settings before transcribing."
             return
