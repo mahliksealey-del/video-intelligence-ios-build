@@ -12,6 +12,26 @@ final class Phase3ReliabilityTests: XCTestCase {
         XCTAssertEqual(TranscriptionProfile.fast.model, "base.en")
         XCTAssertEqual(TranscriptionProfile.balanced.model, "base.en")
         XCTAssertEqual(TranscriptionProfile.accurate.model, "small.en")
+        XCTAssertEqual(TranscriptionProfile.medium.model, "medium.en")
+        XCTAssertEqual(TranscriptionProfile.largeTurbo.model, "large-v3-v20240930_626MB")
+        XCTAssertEqual(Set(TranscriptionProfile.allCases.map(\.model)).count, 4)
+    }
+
+    func testOptionalModelsAreNeverRequiredForDefaultProfiles() {
+        XCTAssertEqual(TranscriptionProfile.fast.model, NativeTranscriptionConfiguration.initialModel)
+        XCTAssertTrue(TranscriptionModelRequirements.canRun(model: "base.en", physicalMemory: 1_000_000_000))
+        XCTAssertTrue(TranscriptionModelRequirements.canRun(model: "small.en", physicalMemory: 1_000_000_000))
+        XCTAssertTrue(TranscriptionModelRequirements.canRun(model: "medium.en", physicalMemory: 6_000_000_000))
+    }
+
+    func testLargeTurboMemoryAndStoragePreflight() {
+        let model = TranscriptionProfile.largeTurbo.model
+        XCTAssertFalse(TranscriptionModelRequirements.canRun(model: model, physicalMemory: 6_000_000_000))
+        XCTAssertTrue(TranscriptionModelRequirements.canRun(model: model, physicalMemory: 8_000_000_000))
+        XCTAssertTrue(TranscriptionModelRequirements.canRun(model: model, physicalMemory: 12_000_000_000))
+        XCTAssertGreaterThan(TranscriptionModelRequirements.requiredFreeStorageBytes(for: "medium.en"),
+                             TranscriptionModelRequirements.requiredFreeStorageBytes(for: "small.en"))
+        XCTAssertGreaterThan(TranscriptionModelRequirements.requiredFreeStorageBytes(for: model), 600_000_000)
     }
 
     func testModelValidationRejectsIncompleteAndAcceptsRequiredFiles() throws {
