@@ -13,8 +13,9 @@ final class Phase3ReliabilityTests: XCTestCase {
         XCTAssertEqual(TranscriptionProfile.balanced.model, "base.en")
         XCTAssertEqual(TranscriptionProfile.accurate.model, "small.en")
         XCTAssertEqual(TranscriptionProfile.medium.model, "medium.en")
+        XCTAssertEqual(TranscriptionProfile.largeFull.model, "openai_whisper-large-v3")
         XCTAssertEqual(TranscriptionProfile.largeTurbo.model, "large-v3-v20240930_626MB")
-        XCTAssertEqual(Set(TranscriptionProfile.allCases.map(\.model)).count, 4)
+        XCTAssertEqual(Set(TranscriptionProfile.allCases.map(\.model)).count, 5)
     }
 
     func testOptionalModelsAreNeverRequiredForDefaultProfiles() {
@@ -32,6 +33,23 @@ final class Phase3ReliabilityTests: XCTestCase {
         XCTAssertGreaterThan(TranscriptionModelRequirements.requiredFreeStorageBytes(for: "medium.en"),
                              TranscriptionModelRequirements.requiredFreeStorageBytes(for: "small.en"))
         XCTAssertGreaterThan(TranscriptionModelRequirements.requiredFreeStorageBytes(for: model), 600_000_000)
+        let full = TranscriptionProfile.largeFull.model
+        XCTAssertFalse(TranscriptionModelRequirements.canRun(model: full, physicalMemory: 6_000_000_000))
+        XCTAssertTrue(TranscriptionModelRequirements.canRun(model: full, physicalMemory: 8_000_000_000))
+        XCTAssertTrue(TranscriptionModelRequirements.canRun(model: full, physicalMemory: 12_000_000_000))
+        XCTAssertGreaterThan(TranscriptionModelRequirements.requiredFreeStorageBytes(for: full),
+                             TranscriptionModelRequirements.requiredFreeStorageBytes(for: model))
+    }
+
+    func testFullLargeModelCannotBeConfusedWithCompressedOrTurboCacheFolders() {
+        let full = TranscriptionProfile.largeFull.model
+        XCTAssertTrue(WhisperModelValidator.matchesModelDirectory("openai_whisper-large-v3", selectedModel: full))
+        XCTAssertFalse(WhisperModelValidator.matchesModelDirectory("openai_whisper-large-v3_947MB", selectedModel: full))
+        XCTAssertFalse(WhisperModelValidator.matchesModelDirectory("openai_whisper-large-v3_turbo_954MB", selectedModel: full))
+        XCTAssertFalse(WhisperModelValidator.matchesModelDirectory("openai_whisper-large-v3-v20240930_626MB", selectedModel: full))
+        XCTAssertTrue(WhisperModelValidator.matchesModelDirectory("openai_whisper-large-v3-v20240930_626MB", selectedModel: TranscriptionProfile.largeTurbo.model))
+        XCTAssertTrue(WhisperModelValidator.matchesModelDirectory("openai_whisper-medium.en", selectedModel: TranscriptionProfile.medium.model))
+        XCTAssertTrue(WhisperModelValidator.matchesModelDirectory("openai_whisper-base.en", selectedModel: TranscriptionProfile.fast.model))
     }
 
     func testModelValidationRejectsIncompleteAndAcceptsRequiredFiles() throws {
