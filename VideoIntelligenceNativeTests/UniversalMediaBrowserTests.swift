@@ -78,6 +78,27 @@ final class UniversalMediaBrowserTests: XCTestCase {
         XCTAssertEqual(track.headers["User-Agent"], "Test User Agent")
     }
 
+    func testPopupsRequireUserInitiatedSafeNavigation() {
+        XCTAssertTrue(UniversalBrowserPopupPolicy.canOpenNewWindow(
+            URL(string: "https://video.example.com/watch"), userInitiated: true))
+        XCTAssertFalse(UniversalBrowserPopupPolicy.canOpenNewWindow(
+            URL(string: "https://video.example.com/advertisement"), userInitiated: false))
+        XCTAssertFalse(UniversalBrowserPopupPolicy.canOpenNewWindow(
+            URL(string: "https://localhost/video"), userInitiated: true))
+        XCTAssertFalse(UniversalBrowserPopupPolicy.canOpenNewWindow(
+            URL(string: "http://video.example.com/watch"), userInitiated: true))
+        XCTAssertFalse(UniversalBrowserPopupPolicy.canOpenNewWindow(nil, userInitiated: true))
+    }
+
+    func testPopupDismissalIsExplicitAndLimitedToCloseControls() {
+        let script = UniversalBrowserPopupPolicy.dismissScript
+        XCTAssertTrue(script.contains("dismiss"))
+        XCTAssertTrue(script.contains("not now"))
+        XCTAssertTrue(script.contains("captcha"))
+        XCTAssertTrue(script.contains("button.click()"))
+        XCTAssertFalse(script.contains("localStorage.clear()"))
+    }
+
     func testSharedCookieRequiresBothPageAndMediaDomainMatch() {
         XCTAssertTrue(TrackDownloadDelegate.cookieDomain(".example.com", matches: "forum.example.com"))
         XCTAssertTrue(TrackDownloadDelegate.cookieDomain(".example.com", matches: "media.example.com"))
