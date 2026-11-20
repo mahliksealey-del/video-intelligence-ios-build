@@ -127,6 +127,7 @@ struct DownloadStorageError: LocalizedError {
 struct MediaDownloader {
 
     func download(from url: URL, session: URLSession = .shared) async throws -> URL {
+        try DownloadStoragePolicy.check()
         let (temporaryURL, response) = try await session.download(from: url)
         guard let http = response as? HTTPURLResponse else { throw MediaDownloadError.unsupportedContent }
         guard (200...299).contains(http.statusCode) else { throw MediaDownloadError.serverRejected(http.statusCode) }
