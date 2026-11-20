@@ -31,6 +31,11 @@ formats = [
     {"format_id": "22", "url": "https://rr.googlevideo.com/two.mp4",
      "protocol": "https", "height": 720, "ext": "mp4",
      "vcodec": "avc1.64001f", "acodec": "mp4a.40.2", "tbr": 2200},
+    # yt-dlp exposes a fragment descriptor that the native app must NOT
+    # treat as a complete downloadable file, even if its bitrate is higher.
+    {"format_id": "299-dashy", "url": "https://rr.googlevideo.com/fragment",
+     "protocol": "http_dash_segments", "height": 1080, "ext": "mp4",
+     "vcodec": "avc1.640028", "acodec": "mp4a.40.2", "tbr": 6000},
 ]
 
 class CapturingDownloader:
@@ -40,6 +45,8 @@ class CapturingDownloader:
             "A stale YouTube player-client override is still forced")
         assert opts.get("skip_download")
         assert "format" in opts
+        assert "protocol^=http" not in opts["format"], "May select unsupported DASH fragments"
+        assert "protocol=https" in opts["format"], "YouTube must select complete HTTPS files"
 
     def __enter__(self):
         return self
@@ -51,8 +58,8 @@ class CapturingDownloader:
         assert url in (regular, shorts)
         assert not download
         return {"id": "dQw4w9WgXcQ", "title": "Contract Test",
-                "url": formats[-1]["url"], "ext": "mp4",
-                "vcodec": formats[-1]["vcodec"], "acodec": formats[-1]["acodec"],
+                "url": formats[1]["url"], "ext": "mp4",
+                "vcodec": formats[1]["vcodec"], "acodec": formats[1]["acodec"],
                 "protocol": "https", "formats": formats}
 
     def prepare_filename(self, info):
@@ -64,13 +71,20 @@ try:
     for url in (regular, shorts):
         result = json.loads(bridge._extract_impl(url, 15, None))
         assert result["ok"] and result["kind"] == "progressive", result
-        assert result["media"]["url"] == formats[-1]["url"], result
+        assert result["media"]["url"] == formats[1]["url"], result
 
         listed = json.loads(bridge._list_impl(url, 15, None))
         assert listed["ok"] and listed["kind"] == "choices", listed
         assert [option["height"] for option in listed["options"]] == [720, 360]
 finally:
     yt_dlp.YoutubeDL = real_ydl
+
+assert bridge._native_supported_format(
+    "best[protocol^=http]", regular) == "best[protocol=https]"
+assert bridge._native_supported_format(
+    "best[protocol^=http]", shorts) == "best[protocol=https]"
+assert bridge._native_supported_format(
+    "best[protocol^=http]", "https://www.instagram.com/reel/test/") == "best[protocol^=http]"
 
 assert len(seen) == 4, len(seen)
 print("YouTube extractor contract OK: regular + Shorts; no stale player-client override")
