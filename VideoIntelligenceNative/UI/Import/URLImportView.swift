@@ -3,12 +3,16 @@ import SwiftUI
 struct URLImportView: View {
     @EnvironmentObject private var library: LibraryStore
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var instagramSession = InstagramSession.shared
+    @State private var showingInstagramSignIn = false
     @State private var value = ""
     @State private var sourceURL: URL?
     @State private var formats: [SocialFormatOption] = []
     @State private var resolved: ResolvedSocialMedia?
     @State private var isResolving = false
+    @State private var resolveStartedAt: Date?
     @State private var errorMessage: String?
+    @State private var showTikTokBrowser = false
 
     private var provider: MediaProvider? { (try? MediaURLValidator.validate(value)).map(MediaProvider.detect) }
 
@@ -19,7 +23,32 @@ struct URLImportView: View {
                     TextField("YouTube, TikTok, Instagram, or direct media URL", text: $value).textInputAutocapitalization(.never).keyboardType(.URL).autocorrectionDisabled()
                     if let provider { LabeledContent("Detected", value: provider.rawValue) }
                 }
-                if isResolving { Section { ProgressView("Resolving on this iPhone…") } }
+                if provider == .instagram {
+                    Section("Instagram account") {
+                        if instagramSession.hasSession {
+                            Label("Instagram session available on this iPhone", systemImage: "checkmark.shield.fill")
+                            Button("Sign out of Instagram", role: .destructive) { Task { await instagramSession.signOut() } }
+                        } else {
+                            Text("Public Reels can still require an Instagram session.")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        }
+                        Button(instagramSession.hasSession ? "Update Instagram Sign-In" : "Sign in to Instagram") {
+                            showingInstagramSignIn = true
+                        }
+                    }
+                }
+                if isResolving {
+                    Section {
+                        ProgressView("Resolving on this iPhone…")
+                        if let startedAt = resolveStartedAt {
+                            TimelineView(.periodic(from: .now, by: 1)) { context in
+                                let elapsed = max(0, context.date.timeIntervalSince(startedAt))
+                                Text("Checking provider · elapsed \(MediaPlayerView.clock(elapsed)) · time remaining unknown")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
                 if !formats.isEmpty {
                     Section("Available video formats") {
                         ForEach(formats) { option in
@@ -38,12 +67,50 @@ struct URLImportView: View {
                     }
                 }
                 if let progress = library.socialDownloadProgress {
-                    Section("Downloading") { ProgressView(value: progress); Button("Cancel", role: .destructive) { library.cancelOperation() } }
+                    Section("Downloading") {
+                        ProgressView(value: progress)
+                        if let startedAt = library.socialDownloadStartedAt {
+                            TimelineView(.periodic(from: .now, by: 1)) { context in
+                                let elapsed = max(0, context.date.timeIntervalSince(startedAt))
+                                if progress >= 0.98 {
+                                    Text("Finalizing media · elapsed \(MediaPlayerView.clock(elapsed))").font(.caption).foregroundStyle(.secondary)
+                                } else if elapsed >= 5, progress > 0.08 {
+                                    let remaining = min(86_400, elapsed * (1 - progress) / progress)
+                                    Text("Elapsed \(MediaPlayerView.clock(elapsed)) · ~\(MediaPlayerView.clock(remaining)) left (approximate transfer ETA)")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                } else {
+                                    Text("Elapsed \(MediaPlayerView.clock(elapsed)) · estimating transfer time…").font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        Button("Cancel", role: .destructive) { library.cancelOperation() }
+                    }
                 }
-                if let errorMessage { Section { Text(errorMessage).foregroundStyle(.red) } }
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage).foregroundStyle(.red)
+                        if provider == .tiktok {
+                            Button("Try TikTok Browser Fallback") { showTikTokBrowser = true }
+                        }
+                    }
+                }
                 Section { Text("Extraction and transfer run locally. Private, DRM-protected, unavailable, or authentication-gated media is not bypassed. Download only media you are authorized to save.").font(.footnote).foregroundStyle(.secondary) }
             }
             .navigationTitle("Get Media")
+            .sheet(isPresented: $showTikTokBrowser) {
+                if let url = try? MediaURLValidator.validate(value), MediaProvider.detect(url) == .tiktok {
+                    TikTokBrowserFallbackView(url: url) { media in
+                        sourceURL = url
+                        formats = []
+                        resolved = media
+                        errorMessage = nil
+                    }
+                }
+            }
+            .task { await instagramSession.refresh() }
+            .sheet(isPresented: $showingInstagramSignIn, onDismiss: { Task { await instagramSession.refresh() } }) {
+                InstagramSignInView(session: instagramSession)
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) { Button(provider == .direct ? "Download" : "Resolve") { resolve() }.disabled(value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isResolving || library.socialDownloadProgress != nil) }
@@ -55,6 +122,7 @@ struct URLImportView: View {
         errorMessage = nil; formats = []; resolved = nil
         guard provider != .direct else { library.importURL(value); dismiss(); return }
         isResolving = true
+        resolveStartedAt = Date()
         Task {
             do {
                 let (url, listing) = try await library.listSocialFormats(value)
@@ -62,13 +130,14 @@ struct URLImportView: View {
                 switch listing { case .ready(let media): resolved = media; case .choices(let options): formats = options }
             } catch { errorMessage = error.localizedDescription }
             isResolving = false
+            resolveStartedAt = nil
         }
     }
 
     private func choose(_ option: SocialFormatOption) {
         guard let sourceURL else { return }
-        isResolving = true; errorMessage = nil
-        Task { do { resolved = try await library.resolveSocial(sourceURL, option: option); formats = [] } catch { errorMessage = error.localizedDescription }; isResolving = false }
+        isResolving = true; errorMessage = nil; resolveStartedAt = Date()
+        Task { do { resolved = try await library.resolveSocial(sourceURL, option: option); formats = [] } catch { errorMessage = error.localizedDescription }; isResolving = false; resolveStartedAt = nil }
     }
 
     private func start(_ media: ResolvedSocialMedia, mode: SocialDownloadMode) {

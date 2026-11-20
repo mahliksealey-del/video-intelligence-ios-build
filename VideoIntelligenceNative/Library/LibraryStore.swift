@@ -7,8 +7,10 @@ final class LibraryStore: ObservableObject {
     @Published private(set) var items: [MediaLibraryItem] = []
     @Published var errorMessage: String?
     @Published var activeTaskID: UUID?
+    @Published var activeTaskStartedAt: Date?
     @Published var storageBytes: Int64 = 0
     @Published var socialDownloadProgress: Double?
+    @Published var socialDownloadStartedAt: Date?
 
     let storage: LibraryStorage
     let modelManager: WhisperModelManager
@@ -80,6 +82,7 @@ final class LibraryStore: ObservableObject {
         }
         operation?.cancel()
         activeTaskID = item.id
+        activeTaskStartedAt = Date()
         update(item.id) { $0.status = .transcribing; $0.progress = 0.1; $0.errorMessage = nil }
         operation = Task {
             do {
@@ -107,6 +110,14 @@ final class LibraryStore: ObservableObject {
                 }
                 guard let enginePool else { throw ModelValidationError.incomplete(profile.model) }
                 let output = try await enginePool.transcribe(TranscriptionRequest(audioFileURL: audioURL))
+                if let timing = output.performance, item.duration > 5, timing.inferenceSeconds > 0 {
+                    let key = "transcription.secondsPerAudioSecond.\(profile.rawValue)"
+                    let previous = UserDefaults.standard.double(forKey: key)
+                    let observed = timing.inferenceSeconds / item.duration
+                    if observed.isFinite, observed > 0 {
+                        UserDefaults.standard.set(previous > 0 ? previous * 0.7 + observed * 0.3 : observed, forKey: key)
+                    }
+                }
                 let record = TranscriptRecord(id: item.id.uuidString, title: item.title, sourceUrl: item.sourceURL, sourceName: item.sourceFilename, createdAt: ISO8601DateFormatter().string(from: Date()), duration: item.duration, engine: output.engine, model: output.model, text: output.text, correctedText: nil, segments: output.segments)
                 let transcriptPath = try await storage.writeTranscript(record, id: item.id)
                 update(item.id) { $0.status = .transcribed; $0.progress = 1; $0.transcriptRelativePath = transcriptPath; $0.segmentCount = output.segments.count; $0.lastPerformance = output.performance }
@@ -118,7 +129,15 @@ final class LibraryStore: ObservableObject {
                 try? await persist()
             }
             activeTaskID = nil
+            activeTaskStartedAt = nil
         }
+    }
+
+    func estimatedTranscriptionSeconds(for item: MediaLibraryItem) -> Double? {
+        let key = "transcription.secondsPerAudioSecond.\(modelManager.selectedProfile.rawValue)"
+        let rate = UserDefaults.standard.double(forKey: key)
+        guard rate > 0, rate.isFinite, item.duration > 0 else { return nil }
+        return max(1, item.duration * rate + 5)
     }
 
     func cancelOperation() { operation?.cancel(); operation = nil }
@@ -136,6 +155,7 @@ final class LibraryStore: ObservableObject {
     func downloadSocial(_ media: ResolvedSocialMedia, sourceURL: URL, mode: SocialDownloadMode) {
         operation?.cancel()
         socialDownloadProgress = 0
+        socialDownloadStartedAt = Date()
         operation = Task {
             do {
                 let result = try await socialDownloader.download(media, sourceURL: sourceURL, mode: mode) { progress in
@@ -144,9 +164,10 @@ final class LibraryStore: ObservableObject {
                 let itemID = await importFile(result.fileURL, sourceURL: result.sourceURL.absoluteString, title: result.title)
                 try? FileManager.default.removeItem(at: result.fileURL.deletingLastPathComponent())
                 socialDownloadProgress = nil
+                socialDownloadStartedAt = nil
                 if result.shouldTranscribe, let itemID, let item = items.first(where: { $0.id == itemID }) { transcribe(item) }
-            } catch is CancellationError { socialDownloadProgress = nil }
-            catch { socialDownloadProgress = nil; errorMessage = error.localizedDescription }
+            } catch is CancellationError { socialDownloadProgress = nil; socialDownloadStartedAt = nil }
+            catch { socialDownloadProgress = nil; socialDownloadStartedAt = nil; errorMessage = error.localizedDescription }
         }
     }
 
