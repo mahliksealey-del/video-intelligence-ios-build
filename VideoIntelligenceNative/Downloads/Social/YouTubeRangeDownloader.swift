@@ -5,8 +5,6 @@ import Foundation
 /// the existing URLSession download path and cookies/session behavior unchanged.
 /// A response ignoring Range is accepted as one full validated download.
 struct YouTubeRangeDownloader {
-    static let maximumChunks = 20_000
-
     static func shouldUse(_ track: SocialMediaTrack) -> Bool {
         guard let size = track.chunkSize, size > 0,
               let host = track.url.host?.lowercased() else { return false }
@@ -15,8 +13,8 @@ struct YouTubeRangeDownloader {
 
     static func byteRange(start: Int64, chunkSize: Int, total: Int64?) -> String {
         let count = max(1, min(Int64(chunkSize), 10_485_760))
-        let maxEnd = MediaDownloader.maximumBytes - 1
-        var end = min(maxEnd, start + count - 1)
+        // Saturating Int64 arithmetic without any arbitrary file-size limit.
+        var end = start > Int64.max - count ? Int64.max - 1 : start + count - 1
         if let total { end = min(end, total - 1) }
         return "bytes=\(start)-\(end)"
     }
@@ -28,8 +26,7 @@ struct YouTubeRangeDownloader {
         let fields = normalized.dropFirst(6).split(separator: "/", omittingEmptySubsequences: false)
         guard fields.count == 2,
               let total = Int64(fields[1]),
-              total > 0,
-              total <= MediaDownloader.maximumBytes else { return nil }
+              total > 0 else { return nil }
         let positions = fields[0].split(separator: "-", omittingEmptySubsequences: false)
         guard positions.count == 2,
               let start = Int64(positions[0]),
@@ -66,8 +63,12 @@ struct YouTubeRangeDownloader {
 
         var offset: Int64 = 0
         var expectedTotal: Int64?
-        for _ in 0..<Self.maximumChunks {
+        // Continue until the actual response's advertised total is complete.
+        // Storage availability, not a chunk counter or byte cap, is the limit.
+        while true {
             try Task.checkCancellation()
+            let remaining = expectedTotal.map { max(0, $0 - offset) }
+            try DownloadStoragePolicy.check(remaining: remaining)
             var request = URLRequest(url: track.url)
             track.headers.forEach { request.setValue($1, forHTTPHeaderField: $0) }
             request.setValue(Self.byteRange(start: offset, chunkSize: chunkSize, total: expectedTotal),
@@ -91,9 +92,6 @@ struct YouTubeRangeDownloader {
             // Some media hosts ignore Range requests and return the full file.
             // Only accept this at offset zero; never append duplicate data.
             if http.statusCode == 200 && offset == 0 {
-                guard byteCount <= MediaDownloader.maximumBytes else {
-                    throw MediaDownloadError.tooLarge
-                }
                 try handle.close()
                 try FileManager.default.removeItem(at: output)
                 try FileManager.default.moveItem(at: piece, to: output)
@@ -112,6 +110,7 @@ struct YouTubeRangeDownloader {
                 )
             }
             expectedTotal = range.total
+            try DownloadStoragePolicy.check(remaining: range.total - offset)
 
             let source = try FileHandle(forReadingFrom: piece)
             defer { try? source.close() }
@@ -129,6 +128,5 @@ struct YouTubeRangeDownloader {
                 return output
             }
         }
-        throw SocialExtractionError.unsupported("The YouTube media download exceeded the segment safety limit.")
     }
 }
