@@ -9,7 +9,8 @@ enum TikTokBrowserResolution {
     private struct Payload: Decodable {
         let postID: String?
         let pageID: String?
-        let mediaURL: String?
+        let mediaURL: String?       // backward-compatible with the first prototype
+        let mediaURLs: [String]?   // current player first, then TikTok metadata streams
         let title: String?
         let userAgent: String?
         let error: String?
@@ -24,18 +25,30 @@ enum TikTokBrowserResolution {
               postID.allSatisfy({ $0.isNumber }) else {
             throw SocialExtractionError.unsupported(payload.error ?? "TikTok did not expose an identifiable video post in the browser.")
         }
-        guard let rawURL = payload.mediaURL, let url = URL(string: rawURL),
-              url.scheme?.lowercased() == "https",
-              let host = url.host?.lowercased(),
-              Self.isTikTokMediaHost(host), URLSafetyPolicy.isPublic(url) else {
-            throw SocialExtractionError.unsupported("TikTok did not expose a directly downloadable video. The browser may show a protected player or login page.")
+        let rawCandidates = (payload.mediaURLs ?? []) + [payload.mediaURL].compactMap { $0 }
+        var candidates: [URL] = []
+        for raw in rawCandidates {
+            guard raw.count < 8192, let url = URL(string: raw),
+                  url.scheme?.lowercased() == "https",
+                  let host = url.host?.lowercased(),
+                  isTikTokMediaHost(host), URLSafetyPolicy.isPublic(url),
+                  !candidates.contains(url) else { continue }
+            candidates.append(url)
+            if candidates.count >= 5 { break }
+        }
+        guard let first = candidates.first else {
+            throw SocialExtractionError.unsupported("TikTok's browser played the page but did not expose a supported direct video stream.")
         }
         var headers = ["Referer": "https://www.tiktok.com/"]
         if let agent = payload.userAgent, !agent.isEmpty, agent.count < 512 {
             headers["User-Agent"] = agent
         }
-        let track = SocialMediaTrack(url: url, headers: headers, fileExtension: "mp4", chunkSize: nil, approximateBytes: nil)
-        return ResolvedSocialMedia(kind: .progressive(track), title: payload.title ?? "TikTok video", suggestedFilename: "TikTok-\(postID).mp4")
+        let track = SocialMediaTrack(url: first, headers: headers, fileExtension: "mp4",
+                                     chunkSize: nil, approximateBytes: nil,
+                                     alternativeURLs: Array(candidates.dropFirst()),
+                                     useBrowserCookies: true)
+        return ResolvedSocialMedia(kind: .progressive(track), title: payload.title ?? "TikTok video",
+                                   suggestedFilename: "TikTok-\(postID).mp4")
     }
 
     static func isTikTokMediaHost(_ host: String) -> Bool {
@@ -56,19 +69,44 @@ enum TikTokBrowserResolution {
         item = (scope['webapp.video-detail'] || scope['webapp.reflow.video.detail'])?.itemInfo?.itemStruct || null;
       } catch (_) {}
       if (!item || !pageID || String(item.id) !== pageID) {
-        return JSON.stringify({postID: String(item?.id || ''), pageID, error: 'TikTok browser has not loaded public post metadata. Try playing the video and then retry.'});
+        return JSON.stringify({postID: String(item?.id || ''), pageID, error: 'TikTok has not loaded public post data. Play the video, then retry.'});
       }
-      const video = item.video || {};
+
       const urls = [];
-      for (const row of (video.bitrateInfo || [])) {
-        for (const candidate of (row.PlayAddr?.UrlList || [])) urls.push(candidate);
+      const add = (candidate) => {
+        if (typeof candidate === 'string' && candidate.startsWith('https://')) urls.push(candidate);
+      };
+      const addAddress = (candidate) => {
+        if (Array.isArray(candidate)) { candidate.forEach(add); return; }
+        if (typeof candidate === 'string') { add(candidate); return; }
+        if (candidate && typeof candidate === 'object') {
+          [candidate.UrlList, candidate.urlList, candidate.url_list].forEach(list => {
+            if (Array.isArray(list)) list.forEach(add);
+          });
+        }
+      };
+
+      // Prefer the actual rendered player that successfully played on this iPhone
+      // rather than choosing an untested H.265/alternate bitrate metadata URL.
+      const players = [...document.querySelectorAll('video')];
+      const active = players.find(v => !v.paused && v.readyState >= 2) || players.find(v => v.readyState >= 2);
+      if (active) {
+        add(active.currentSrc);
+        add(active.src);
+        active.querySelectorAll('source').forEach(source => add(source.src));
       }
-      for (const candidate of [video.playAddr, video.downloadAddr]) {
-        if (typeof candidate === 'string') urls.push(candidate);
-      }
-      const url = urls.find(s => typeof s === 'string' && s.startsWith('https://')) || null;
+
+      const video = item.video || {};
+      addAddress(video.playAddr);
+      addAddress(video.playAddrH264);
+      for (const row of (video.bitrateInfo || [])) addAddress(row.PlayAddr || row.playAddr);
+      addAddress(video.downloadAddr);
+      const og = document.querySelector('meta[property="og:video"],meta[property="og:video:url"]');
+      add(og?.content);
+
       return JSON.stringify({
-        postID: String(item.id), pageID, mediaURL: url,
+        postID: String(item.id), pageID,
+        mediaURLs: [...new Set(urls)].slice(0, 12),
         title: String(item.desc || 'TikTok video').slice(0, 100),
         userAgent: navigator.userAgent
       });
