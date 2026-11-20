@@ -58,6 +58,12 @@ Direct downloads reject unsafe local-address literals, excessive files, text res
 This native application includes Keraunos-derived GPLv3 components and is distributed under GPLv3. See `LICENSE-GPL-3.0.txt` and `THIRD_PARTY_NOTICES.md` for exact sources, revisions, hashes, and other upstream licenses. Model weights are not vendored.
 
 
+## Universal Media Resolver UMR-1 (experimental)
+
+The new `feature/universal-browser-resolver-2026-11-20` branch includes a user-driven `Website Browser` for public and authorized signed-in pages. Enter an unfamiliar webpage in **Get Media**, select **Download Video / Audio / Download & Transcribe**, choose **Open Website**, play video and tap **Find Video**. The scanner shows direct-video candidates, HLS playlists and DASH manifests when discoverable. For a detected HTTPS direct video, **Save** uses the existing on-device media transfer, playable-file verification, library and transcript workflow. Cross-origin embedded players can be invisible to WebKit scripting; manifest-backed HLS/DASH exports, DRM, `blob:`/MSE media, and videos requiring non-cookie authentication are **not promised or implemented yet**. Browser cookie import is strictly scoped to domains matching both the viewed page and media host; cross-origin CDNs receive no originating-site login cookies.
+
+Direct MP4/audio URLs retain the previous import route, while YouTube/Instagram retain yt-dlp and TikTok retains its user-verified dedicated WebKit route. Stable source and installed IPA remain unaffected until device acceptance. Test on a site whose video you are authorized to save; do not provide private URLs or cookies in bug reports.
+
 ## Experimental full-precision Whisper Large V3 (opt-in)
 
 Branch `feature/whisper-full-large-v3-2026-11-20` adds a separate **Large V3 (Full Precision)** transcription profile using Argmax Core ML folder `openai_whisper-large-v3` (approximately 3.09 GB). It remains distinct from Medium English (`medium.en`, around 1.53 GB), the compressed full-Large-V3 model (`openai_whisper-large-v3_947MB`, **not** selected here), and the existing compressed Large V3 Turbo profile (`large-v3-v20240930_626MB`, approximately 626 MB). Model weights are downloaded by the user from the iPhone Settings screen and are **never included in the IPA**.
