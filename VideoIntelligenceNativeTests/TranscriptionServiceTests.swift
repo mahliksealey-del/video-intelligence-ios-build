@@ -18,6 +18,7 @@ final class TranscriptionServiceTests: XCTestCase {
         XCTAssertEqual(NativeTranscriptionConfiguration.packageCommit, "1bbc57cb7fe6410248a685b1c5a3c6d56adc2ed4")
         XCTAssertEqual(NativeTranscriptionConfiguration.initialModel, "base.en")
         XCTAssertEqual(TranscriptionProfile(rawValue: "balanced"), .balanced)
+        XCTAssertEqual(TranscriptionProfile(rawValue: "largeFull"), .largeFull)
         XCTAssertEqual(TranscriptionProfile(rawValue: "largeTurbo"), .largeTurbo)
     }
 }
