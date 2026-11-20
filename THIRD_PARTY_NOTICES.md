@@ -13,7 +13,7 @@ The embedded Python resources, extraction bridge architecture, and bridge-derive
 
 ## yt-dlp and yt-dlp-ejs
 
-Keraunos's pinned Python resources contain yt-dlp 2026.6.9 and yt-dlp-ejs 0.8.0. yt-dlp is dedicated to the public domain under the Unlicense. Individual dependencies and JavaScript components retain their own notices in the pinned source distribution.
+Video Intelligence starts with the pinned Keraunos source at commit `863a436cfc3028f38ff8e1f940a66a3e68c53104` and replaces its embedded yt-dlp source at build time with the official `yt-dlp 2026.10.26` release (`yt-dlp.tar.gz`, SHA-256 `21f942d258d25cc4e60b4982a25c423460f0bebb835f38e6dfd1fcb140087f95`). The YouTube EJS 0.8.0 challenge-solver JavaScript library is acquired from [yt-dlp/ejs](https://github.com/yt-dlp/ejs/releases/tag/0.8.0) with official SHA-256 `770831df5c46474fbff06732315b28f4fb090e427ca669a51da61e2457d41c82`, and verified again against yt-dlp's vendor SHA3-512 manifest. The JavaScriptCore bridge is derived from the pinned Keraunos source. The yt-dlp and yt-dlp-ejs projects are dedicated to the public domain under the Unlicense. Third-party code and runtime components retain their respective notices and licenses; these dependencies are acquired during the verified CI build, not committed into the application source snapshot.
 
 ## BeeWare Python Apple support
 
