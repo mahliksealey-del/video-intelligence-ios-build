@@ -42,7 +42,8 @@ enum MediaProvider: String, Sendable {
         if host == "youtu.be" || host == "youtube.com" || host.hasSuffix(".youtube.com")
             || host == "youtube-nocookie.com" || host.hasSuffix(".youtube-nocookie.com") { return .youtube }
         if host == "tiktok.com" || host.hasSuffix(".tiktok.com") { return .tiktok }
-        if host == "instagram.com" || host.hasSuffix(".instagram.com") { return .instagram }
+        if host == "instagram.com" || host.hasSuffix(".instagram.com")
+            || host == "instagr.am" || host == "www.instagr.am" { return .instagram }
         return .direct
     }
 }
