@@ -214,6 +214,7 @@ struct UniversalMediaBrowserView: View {
     @State private var webView: WKWebView?
     @State private var currentPageURL: URL?
     @State private var addressText = ""
+    @State private var approvedAddressNavigation: URL?
     @FocusState private var addressFocused: Bool
     @State private var candidates: [UniversalWebMediaCandidate] = []
     @State private var statusText: String?
@@ -267,6 +268,7 @@ struct UniversalMediaBrowserView: View {
                 }.font(.caption).padding(.horizontal)
                 UniversalBrowserWebView(url: url, webView: $webView,
                                         pageURL: $currentPageURL,
+                                        approvedAddressNavigation: $approvedAddressNavigation,
                                         statusText: $statusText, candidates: $candidates,
                                         scanNonce: $scanNonce, blockAds: blockAds,
                                         stayOnSite: stayOnSite)
@@ -329,6 +331,7 @@ struct UniversalMediaBrowserView: View {
             scanNonce = nil
             candidates = []
             isInspecting = false
+            approvedAddressNavigation = destination
 
             // The site lock is useful against ad redirects but a deliberately
             // entered new address should always be a user-authorized pivot.
@@ -416,6 +419,7 @@ private struct UniversalBrowserWebView: UIViewRepresentable {
     let url: URL
     @Binding var webView: WKWebView?
     @Binding var pageURL: URL?
+    @Binding var approvedAddressNavigation: URL?
     @Binding var statusText: String?
     @Binding var candidates: [UniversalWebMediaCandidate]
     @Binding var scanNonce: String?
@@ -424,6 +428,7 @@ private struct UniversalBrowserWebView: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator {
         Coordinator(statusText: $statusText, pageURL: $pageURL,
+                    approvedAddressNavigation: $approvedAddressNavigation,
                     candidates: $candidates, scanNonce: $scanNonce,
                     blockAds: blockAds, stayOnSite: stayOnSite)
     }
@@ -453,6 +458,7 @@ private struct UniversalBrowserWebView: UIViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
         private let statusText: Binding<String?>
         private let pageURL: Binding<URL?>
+        private let approvedAddressNavigation: Binding<URL?>
         private let candidates: Binding<[UniversalWebMediaCandidate]>
         private let scanNonce: Binding<String?>
         private var blockerEnabled: Bool
@@ -460,11 +466,13 @@ private struct UniversalBrowserWebView: UIViewRepresentable {
         private var blockerGeneration = 0
 
         init(statusText: Binding<String?>, pageURL: Binding<URL?>,
+             approvedAddressNavigation: Binding<URL?>,
              candidates: Binding<[UniversalWebMediaCandidate]>,
              scanNonce: Binding<String?>, blockAds: Bool,
              stayOnSite: Bool) {
             self.statusText = statusText
             self.pageURL = pageURL
+            self.approvedAddressNavigation = approvedAddressNavigation
             self.candidates = candidates
             self.scanNonce = scanNonce
             self.blockerEnabled = blockAds
@@ -541,6 +549,7 @@ private struct UniversalBrowserWebView: UIViewRepresentable {
 
         func webView(_ webView: WKWebView,
                      didCommit navigation: WKNavigation!) {
+            approvedAddressNavigation.wrappedValue = nil
             pageURL.wrappedValue = webView.url
         }
 
@@ -552,6 +561,15 @@ private struct UniversalBrowserWebView: UIViewRepresentable {
         func webView(_ webView: WKWebView,
                      decidePolicyFor navigationAction: WKNavigationAction,
                      decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+            // A URL explicitly submitted through the address bar overrides
+            // the optional cross-site ad-redirect guard exactly once.
+            if navigationAction.targetFrame?.isMainFrame == true,
+               let approved = approvedAddressNavigation.wrappedValue,
+               approved == navigationAction.request.url {
+                approvedAddressNavigation.wrappedValue = nil
+                decisionHandler(.allow)
+                return
+            }
             if VideoSiteNavigationLock.shouldBlock(
                 currentPage: webView.url,
                 nextPage: navigationAction.request.url,
