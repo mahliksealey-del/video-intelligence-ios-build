@@ -13,7 +13,9 @@ struct URLImportView: View {
     @State private var resolveStartedAt: Date?
     @State private var errorMessage: String?
     @State private var showTikTokBrowser = false
+    @State private var showUniversalBrowser = false
     @State private var tikTokMode: SocialDownloadMode = .video
+    @State private var universalMode: SocialDownloadMode = .video
 
     private var provider: MediaProvider? { (try? MediaURLValidator.validate(value)).map(MediaProvider.detect) }
 
@@ -21,7 +23,7 @@ struct URLImportView: View {
         NavigationStack {
             Form {
                 Section("Media URL") {
-                    TextField("YouTube, TikTok, Instagram, or direct media URL", text: $value).textInputAutocapitalization(.never).keyboardType(.URL).autocorrectionDisabled()
+                    TextField("Video URL, blog, forum, or website", text: $value).textInputAutocapitalization(.never).keyboardType(.URL).autocorrectionDisabled()
                     if let provider { LabeledContent("Detected", value: provider.rawValue) }
                 }
                 if provider == .tiktok && resolved == nil {
@@ -32,6 +34,15 @@ struct URLImportView: View {
                             }
                         }
                         Text("TikTok opens in the app's browser so the video can load with its existing session. Play it, then tap Download.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                }
+                if provider == .direct {
+                    Section("Website download") {
+                        Picker("Save as", selection: $universalMode) {
+                            ForEach(SocialDownloadMode.allCases) { mode in Text(mode.rawValue).tag(mode) }
+                        }
+                        Text("Direct MP4/audio links download normally. Other websites open in a local browser to detect video as you play it. Sign in only to websites you trust.")
                             .font(.footnote).foregroundStyle(.secondary)
                     }
                 }
@@ -120,33 +131,59 @@ struct URLImportView: View {
                     }
                 }
             }
+            .sheet(isPresented: $showUniversalBrowser) {
+                if let url = try? MediaURLValidator.validate(value), MediaProvider.detect(url) == .direct {
+                    UniversalMediaBrowserView(url: url, mode: universalMode) { media, pageURL in
+                        sourceURL = pageURL
+                        formats = []
+                        resolved = nil
+                        errorMessage = nil
+                        library.downloadSocial(media, sourceURL: pageURL, mode: universalMode)
+                    }
+                }
+            }
             .task { await instagramSession.refresh() }
             .sheet(isPresented: $showingInstagramSignIn, onDismiss: { Task { await instagramSession.refresh() } }) {
                 InstagramSignInView(session: instagramSession)
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) { Button(provider == .direct ? "Download" : provider == .tiktok ? "Open TikTok" : "Resolve") { resolve() }.disabled(value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isResolving || library.socialDownloadProgress != nil) }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(actionTitle) { resolve() }
+                        .disabled(value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isResolving || library.socialDownloadProgress != nil)
+                }
             }
+        }
+    }
+
+    private var actionTitle: String {
+        guard let url = try? MediaURLValidator.validate(value) else { return "Open" }
+        switch MediaResolutionRoute.forURL(url) {
+        case .direct: return "Download"
+        case .browser: return "Open TikTok"
+        case .extractor: return "Resolve"
+        case .universalBrowser: return "Open Website"
         }
     }
 
     private func resolve() {
         errorMessage = nil; formats = []; resolved = nil
-        switch MediaResolutionRoute.forProvider(provider) {
+        let url: URL
+        do { url = try MediaURLValidator.validate(value) }
+        catch { errorMessage = error.localizedDescription; return }
+        switch MediaResolutionRoute.forURL(url) {
         case .direct:
             library.importURL(value)
             dismiss()
             return
         case .browser:
-            do {
-                // The user-tested TikTok browser method is the primary route.
-                // Skip the Python webpage call that consistently displays an error.
-                sourceURL = try MediaURLValidator.validate(value)
-                showTikTokBrowser = true
-            } catch {
-                errorMessage = error.localizedDescription
-            }
+            // Preserve user-verified TikTok-first routing unchanged.
+            sourceURL = url
+            showTikTokBrowser = true
+            return
+        case .universalBrowser:
+            sourceURL = url
+            showUniversalBrowser = true
             return
         case .extractor:
             break
