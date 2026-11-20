@@ -1,7 +1,7 @@
 name: Video Intelligence Public iOS Build
 
 on:
-  # No artificial download-size cap: fast CI test-compilation + ARM64 IPA gate after cancelled simulator run.
+  # YouTube extractor client-defaults + provider diagnostics fast CI acceptance gate.
   # One-off CI gate for this experimental branch. Only this workflow-file
   # change triggers a push build; ordinary source edits remain manual.
   push:
@@ -12,6 +12,7 @@ on:
       - feature/universal-editable-address-bar-2026-11-20
       - fix/social-provider-download-routing-ejs-2026-11-20
       - fix/browser-oversized-stream-diagnostics-2026-11-20
+      - fix/youtube-player-client-defaults-2026-11-20
     paths:
       - .github/workflows/public-build.yml
   workflow_dispatch:
