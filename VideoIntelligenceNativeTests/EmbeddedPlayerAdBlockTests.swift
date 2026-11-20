@@ -83,6 +83,20 @@ final class EmbeddedPlayerAdBlockTests: XCTestCase {
         XCTAssertFalse(script.contains("localStorage"))
     }
 
+    func testStayOnSiteStopsCrossSiteNavigationButAllowsEmbeds() {
+        let page = URL(string: "https://forum.example.com/thread/123")!
+        let ad = URL(string: "https://ads.example.net/click?redirect=true")!
+        let sameSite = URL(string: "https://forum.example.com/thread/124")!
+        XCTAssertTrue(VideoSiteNavigationLock.shouldBlock(currentPage: page, nextPage: ad,
+                                                          isMainFrame: true, enabled: true))
+        XCTAssertFalse(VideoSiteNavigationLock.shouldBlock(currentPage: page, nextPage: ad,
+                                                           isMainFrame: false, enabled: true))
+        XCTAssertFalse(VideoSiteNavigationLock.shouldBlock(currentPage: page, nextPage: sameSite,
+                                                           isMainFrame: true, enabled: true))
+        XCTAssertFalse(VideoSiteNavigationLock.shouldBlock(currentPage: page, nextPage: ad,
+                                                           isMainFrame: true, enabled: false))
+    }
+
     func testNativeAdRulesJSONExcludesMediaAndFirstParty() throws {
         let data = Data(NativeAdBlocker.rulesJSON.utf8)
         let rules = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [[String: Any]])
