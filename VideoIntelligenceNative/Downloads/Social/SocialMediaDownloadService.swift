@@ -21,16 +21,32 @@ final class TrackDownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchec
     private var progress: (@Sendable (Double) -> Void)?
     private var session: URLSession?
     private var usesTikTokBrowser = false
+    private var usesGeneralBrowser = false
 
     func download(_ track: SocialMediaTrack, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
         self.progress = progress
         self.usesTikTokBrowser = track.useBrowserCookies
+        self.usesGeneralBrowser = track.browserSessionOrigin != nil
         var request = URLRequest(url: track.url)
         track.headers.forEach { request.setValue($1, forHTTPHeaderField: $0) }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 30
         configuration.timeoutIntervalForResource = 3600
-        if track.useBrowserCookies {
+        if let origin = track.browserSessionOrigin, let originHost = origin.host?.lowercased(),
+           let mediaHost = track.url.host?.lowercased() {
+            // The user logged in within the WebKit page. Only cookies whose
+            // RFC domain matches BOTH the page origin and this media endpoint
+            // enter an isolated ephemeral session. Cross-site CDN URLs receive
+            // no forum/blog cookies, even if the page embeds those assets.
+            let all = await WKWebsiteDataStore.default().httpCookieStore.allCookies()
+            for cookie in all where Self.cookieDomain(cookie.domain, matches: originHost)
+                && Self.cookieDomain(cookie.domain, matches: mediaHost)
+                && (cookie.expiresDate.map { $0 > Date() } ?? true) {
+                configuration.httpCookieStorage?.setCookie(cookie)
+            }
+            configuration.httpCookieAcceptPolicy = .always
+            configuration.httpShouldSetCookies = true
+        } else if track.useBrowserCookies {
             // The TikTok WKWebView may have passed the provider's public
             // challenge/consent page. Carry only that site's cookies into this
             // isolated URLSession, with ordinary RFC domain/path matching.
@@ -50,6 +66,12 @@ final class TrackDownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchec
                 session.downloadTask(with: request).resume()
             }
         } onCancel: { session.invalidateAndCancel() }
+    }
+
+    static func cookieDomain(_ domain: String, matches host: String) -> Bool {
+        let clean = domain.lowercased().hasPrefix(".") ? String(domain.lowercased().dropFirst()) : domain.lowercased()
+        let hostname = host.lowercased()
+        return hostname == clean || hostname.hasSuffix("." + clean)
     }
 
     static func isTikTokCookieDomain(_ value: String) -> Bool {
@@ -76,6 +98,12 @@ final class TrackDownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchec
             return
         }
         let mime = (response.mimeType ?? "").lowercased()
+        if usesGeneralBrowser && (mime.contains("text/html") || mime.contains("application/json") || mime.contains("text/plain")) {
+            continuation?.resume(throwing: SocialExtractionError.unsupported(
+                "The webpage's media request returned \(mime) (HTTP \(response.statusCode)), not a downloadable video. Sign in again or retry playback."))
+            continuation = nil
+            return
+        }
         if usesTikTokBrowser && (mime.contains("text/html") || mime.contains("application/json") || mime.contains("text/plain")) {
             continuation?.resume(throwing: SocialExtractionError.unsupported(
                 "TikTok sent \(mime) instead of video (HTTP \(response.statusCode)); browser playback alone does not grant a separate download."))
@@ -90,6 +118,18 @@ final class TrackDownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchec
             continuation?.resume(returning: destination)
         } catch { continuation?.resume(throwing: error) }
         continuation = nil
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest,
+                    completionHandler: @escaping (URLRequest?) -> Void) {
+        guard let next = request.url, URLSafetyPolicy.isPublic(next),
+              (usesTikTokBrowser || usesGeneralBrowser ? next.scheme?.lowercased() == "https" : ["https", "http"].contains(next.scheme?.lowercased() ?? "")) else {
+            completionHandler(nil)
+            return
+        }
+        completionHandler(request)
     }
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
@@ -142,8 +182,8 @@ actor SocialMediaDownloadService {
             let output: URL
             switch media.kind {
             case .progressive(let track):
-                if track.useBrowserCookies {
-                    // A TikTok page can play one signed rendition while another
+                if track.useBrowserCookies || track.browserSessionOrigin != nil {
+                    // A browser-selected page can play one signed rendition while another
                     // metadata rendition returns an HTML gate or an unplayable codec.
                     // Validate each downloaded candidate locally before accepting it.
                     let candidates = [track.url] + track.alternativeURLs
@@ -171,7 +211,7 @@ actor SocialMediaDownloadService {
                     guard let playable else {
                         let reason = lastFailure?.localizedDescription ?? "No video stream was available."
                         throw SocialExtractionError.unsupported(
-                            "TikTok exposed \(candidates.count) browser stream option(s), but none could be downloaded as a playable video. Final attempt: \(String(reason.prefix(300)))")
+                            "The browser detected \(candidates.count) stream option(s), but none downloaded as a playable video. Final attempt: \(String(reason.prefix(300)))")
                     }
                     if mode == .audio || mode == .transcribe {
                         output = try await extractAudio(from: playable, in: temporary)
