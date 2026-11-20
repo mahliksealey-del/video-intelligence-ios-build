@@ -5,7 +5,7 @@ import WebKit
 /// Playback-first media discovery for user-opened ordinary websites.
 /// It does not intercept privileged WebKit traffic or try to defeat DRM.
 struct UniversalWebMediaCandidate: Identifiable, Equatable, Sendable {
-    enum Kind: String, Sendable { case direct, hls, dash }
+    enum Kind: String, Sendable { case direct, hls, dash, embed }
 
     let url: URL
     let pageURL: URL
@@ -62,6 +62,7 @@ enum UniversalWebMediaResolver {
         candidates.sort {
             if $0.isPlaying != $1.isPlaying { return $0.isPlaying }
             if ($0.kind == .direct) != ($1.kind == .direct) { return $0.kind == .direct }
+            if ($0.kind == .embed) != ($1.kind == .embed) { return $0.kind == .embed }
             return false
         }
         return candidates
@@ -193,6 +194,8 @@ struct UniversalMediaBrowserView: View {
     @State private var candidates: [UniversalWebMediaCandidate] = []
     @State private var statusText: String?
     @State private var isInspecting = false
+    @State private var scanNonce: String?
+    @AppStorage("VIWebsiteAdBlockingEnabled") private var blockAds = true
 
     var body: some View {
         NavigationStack {
@@ -209,12 +212,22 @@ struct UniversalMediaBrowserView: View {
                     Button("Dismiss Popup") { dismissPopup() }
                         .disabled(webView == nil)
                         .font(.footnote)
+                    Button(blockAds ? "Ads On" : "Ads Off") {
+                        blockAds.toggle()
+                        candidates = []
+                        statusText = blockAds
+                            ? "Ad blocking enabled. The webpage will reload."
+                            : "Ad blocking disabled for compatibility. The webpage will reload."
+                    }.font(.footnote)
+                     .accessibilityLabel(blockAds ? "Turn ad blocking off" : "Turn ad blocking on")
                     Spacer(minLength: 0)
                     Button(isInspecting ? "Checking…" : "Find Video") { inspect() }
                         .disabled(webView == nil || isInspecting)
                         .buttonStyle(.borderedProminent)
                 }.padding(.horizontal)
-                UniversalBrowserWebView(url: url, webView: $webView, statusText: $statusText)
+                UniversalBrowserWebView(url: url, webView: $webView,
+                                        statusText: $statusText, candidates: $candidates,
+                                        scanNonce: $scanNonce, blockAds: blockAds)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 if !candidates.isEmpty {
                     ScrollView {
@@ -225,7 +238,8 @@ struct UniversalMediaBrowserView: View {
                                     VStack(alignment: .leading, spacing: 3) {
                                         Text(candidate.isPlaying ? "Playing video" :
                                              candidate.kind == .direct ? "Video candidate" :
-                                             candidate.kind == .hls ? "HLS playlist" : "DASH manifest")
+                                             candidate.kind == .hls ? "HLS playlist" :
+                                             candidate.kind == .dash ? "DASH manifest" : "Embedded player")
                                             .font(.subheadline.weight(.semibold))
                                         Text(candidate.url.host ?? "Media")
                                             .font(.caption).foregroundStyle(.secondary).lineLimit(1)
@@ -233,8 +247,11 @@ struct UniversalMediaBrowserView: View {
                                     Spacer()
                                     if candidate.kind == .direct {
                                         Button("Save") { save(candidate) }.buttonStyle(.borderedProminent)
+                                    } else if candidate.kind == .embed {
+                                        Button("Open Player") { openEmbedded(candidate) }
+                                            .buttonStyle(.bordered)
                                     } else {
-                                        Text("Not yet exportable").font(.caption).foregroundStyle(.secondary)
+                                        Text("Stream detected").font(.caption).foregroundStyle(.secondary)
                                     }
                                 }
                                 Divider()
@@ -270,8 +287,13 @@ struct UniversalMediaBrowserView: View {
     private func inspect() {
         guard let webView, let page = webView.url else { return }
         isInspecting = true
-        statusText = nil
+        statusText = "Scanning this page and its embedded players…"
         candidates = []
+        let nonce = UUID().uuidString
+        scanNonce = nonce
+        // The all-frame probe relays results from cross-origin iframe players.
+        webView.evaluateJavaScript("window.postMessage({type:'vi.scan.v1',nonce:'\(nonce)',depth:0},'*');") { _, _ in }
+        // Preserve the proven top-document discovery as a fallback.
         webView.evaluateJavaScript(UniversalWebMediaResolver.script) { value, error in
             Task { @MainActor in
                 isInspecting = false
@@ -283,10 +305,11 @@ struct UniversalMediaBrowserView: View {
                     guard let json = value as? String else {
                         throw SocialExtractionError.runtime("The webpage did not return playback details.")
                     }
-                    candidates = try UniversalWebMediaResolver.decode(json, expectedPageURL: page)
+                    let topFrame = try UniversalWebMediaResolver.decode(json, expectedPageURL: page)
+                    candidates = UniversalMediaFrameResult.merge(candidates, topFrame)
                     statusText = candidates.isEmpty
-                        ? "No accessible media was found in this page. Try playing the video first. Cross-origin embedded players may need their original link."
-                        : "Select a direct video to \(mode.rawValue.lowercased()). HLS and DASH require a later streaming upgrade."
+                        ? "No media yet. Play the video, retry Find Video, or open a detected embedded player."
+                        : "Choose Save for a detected direct video; Open Player for an embedded player. HLS/DASH export is not yet enabled."
                 } catch {
                     statusText = error.localizedDescription
                 }
@@ -294,10 +317,20 @@ struct UniversalMediaBrowserView: View {
         }
     }
 
+    private func openEmbedded(_ candidate: UniversalWebMediaCandidate) {
+        guard candidate.kind == .embed, let webView,
+              candidate.url.scheme?.lowercased() == "https",
+              URLSafetyPolicy.isPublic(candidate.url) else { return }
+        statusText = "Opening the video player's page in the browser. Play it, then use Find Video again."
+        scanNonce = nil
+        candidates = []
+        webView.load(URLRequest(url: candidate.url))
+    }
+
     private func save(_ candidate: UniversalWebMediaCandidate) {
         do {
             let media = try UniversalWebMediaResolver.resolved(candidate)
-            onResolved(media, candidate.pageURL)
+            onResolved(media, webView?.url ?? candidate.pageURL)
             dismiss()
         } catch {
             statusText = error.localizedDescription
@@ -309,25 +342,114 @@ private struct UniversalBrowserWebView: UIViewRepresentable {
     let url: URL
     @Binding var webView: WKWebView?
     @Binding var statusText: String?
+    @Binding var candidates: [UniversalWebMediaCandidate]
+    @Binding var scanNonce: String?
+    let blockAds: Bool
 
-    func makeCoordinator() -> Coordinator { Coordinator(statusText: $statusText) }
+    func makeCoordinator() -> Coordinator {
+        Coordinator(statusText: $statusText, candidates: $candidates,
+                    scanNonce: $scanNonce, blockAds: blockAds)
+    }
 
     func makeUIView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
+        let userContent = configuration.userContentController
+        userContent.addUserScript(WKUserScript(source: UniversalMediaFrameProbe.script,
+                                               injectionTime: .atDocumentStart,
+                                               forMainFrameOnly: false))
+        userContent.add(context.coordinator, name: UniversalMediaFrameProbe.handlerName)
         let created = WKWebView(frame: .zero, configuration: configuration)
         created.navigationDelegate = context.coordinator
         created.uiDelegate = context.coordinator
-        created.load(URLRequest(url: url))
+        context.coordinator.configureBlocker(created, enabled: blockAds,
+                                              initialURL: url)
         DispatchQueue.main.async { self.webView = created }
         return created
     }
 
-    func updateUIView(_ uiView: WKWebView, context: Context) {}
+    func updateUIView(_ uiView: WKWebView, context: Context) {
+        context.coordinator.updateBlocker(uiView, enabled: blockAds)
+    }
 
-    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
         private let statusText: Binding<String?>
-        init(statusText: Binding<String?>) { self.statusText = statusText }
+        private let candidates: Binding<[UniversalWebMediaCandidate]>
+        private let scanNonce: Binding<String?>
+        private var blockerEnabled: Bool
+        private var blockerGeneration = 0
+
+        init(statusText: Binding<String?>, candidates: Binding<[UniversalWebMediaCandidate]>,
+             scanNonce: Binding<String?>, blockAds: Bool) {
+            self.statusText = statusText
+            self.candidates = candidates
+            self.scanNonce = scanNonce
+            self.blockerEnabled = blockAds
+        }
+
+        func configureBlocker(_ webView: WKWebView, enabled: Bool, initialURL: URL) {
+            applyBlocker(webView, enabled: enabled, initialURL: initialURL)
+        }
+
+        func updateBlocker(_ webView: WKWebView, enabled: Bool) {
+            guard blockerEnabled != enabled else { return }
+            applyBlocker(webView, enabled: enabled, initialURL: nil)
+        }
+
+        private func applyBlocker(_ webView: WKWebView, enabled: Bool, initialURL: URL?) {
+            blockerEnabled = enabled
+            blockerGeneration += 1
+            let generation = blockerGeneration
+            let userContent = webView.configuration.userContentController
+            userContent.removeAllContentRuleLists()
+            guard enabled else {
+                if let initialURL { webView.load(URLRequest(url: initialURL)) }
+                else { webView.reload() }
+                return
+            }
+            NativeAdBlocker.prepare { [weak self, weak webView] list, error in
+                DispatchQueue.main.async {
+                    guard let self, let webView,
+                          self.blockerEnabled,
+                          self.blockerGeneration == generation else { return }
+                    if let list { webView.configuration.userContentController.add(list) }
+                    else if let error {
+                        self.statusText.wrappedValue = "The optional ad rules could not load: \(error.localizedDescription). Browser playback still works."
+                    }
+                    if let initialURL { webView.load(URLRequest(url: initialURL)) }
+                    else { webView.reload() }
+                }
+            }
+        }
+
+        func userContentController(_ userContentController: WKUserContentController,
+                                   didReceive message: WKScriptMessage) {
+            guard message.name == UniversalMediaFrameProbe.handlerName,
+                  let json = message.body as? String,
+                  json.count < 100_000,
+                  let expectedNonce = scanNonce.wrappedValue,
+                  let frameURL = message.frameInfo.request.url,
+                  frameURL.scheme?.lowercased() == "https",
+                  URLSafetyPolicy.isPublic(frameURL) else { return }
+            Task { @MainActor in
+                guard self.scanNonce.wrappedValue == expectedNonce else { return }
+                do {
+                    let result = try UniversalMediaFrameResult.decode(
+                        json, frameURL: frameURL, expectedNonce: expectedNonce)
+                    self.candidates.wrappedValue = UniversalMediaFrameResult.merge(
+                        self.candidates.wrappedValue, result)
+                    if !self.candidates.wrappedValue.isEmpty {
+                        self.statusText.wrappedValue = "Found media from the page or embedded players. Select Save or Open Player."
+                    }
+                } catch { /* Ignore malformed third-party frame messages. */ }
+            }
+        }
+
+        func webView(_ webView: WKWebView,
+                     didStartProvisionalNavigation navigation: WKNavigation!) {
+            scanNonce.wrappedValue = nil
+            candidates.wrappedValue = []
+        }
 
         func webView(_ webView: WKWebView,
                      createWebViewWith configuration: WKWebViewConfiguration,
