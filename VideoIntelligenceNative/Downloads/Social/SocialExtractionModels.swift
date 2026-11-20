@@ -20,10 +20,14 @@ struct SocialMediaTrack: Equatable, Sendable {
     // paths for YouTube/Instagram keep their prior, unauthenticated behavior.
     let alternativeURLs: [URL]
     let useBrowserCookies: Bool
+    // Only user-initiated general WebKit discoveries set this. Cookies must
+    // domain-match BOTH the browsing origin and the media request host.
+    let browserSessionOrigin: URL?
 
     init(url: URL, headers: [String: String], fileExtension: String,
          chunkSize: Int?, approximateBytes: Int64?,
-         alternativeURLs: [URL] = [], useBrowserCookies: Bool = false) {
+         alternativeURLs: [URL] = [], useBrowserCookies: Bool = false,
+         browserSessionOrigin: URL? = nil) {
         self.url = url
         self.headers = headers
         self.fileExtension = fileExtension
@@ -31,12 +35,14 @@ struct SocialMediaTrack: Equatable, Sendable {
         self.approximateBytes = approximateBytes
         self.alternativeURLs = alternativeURLs
         self.useBrowserCookies = useBrowserCookies
+        self.browserSessionOrigin = browserSessionOrigin
     }
 
     func selecting(_ newURL: URL) -> SocialMediaTrack {
         SocialMediaTrack(url: newURL, headers: headers, fileExtension: fileExtension,
                          chunkSize: chunkSize, approximateBytes: approximateBytes,
-                         useBrowserCookies: useBrowserCookies)
+                         useBrowserCookies: useBrowserCookies,
+                         browserSessionOrigin: browserSessionOrigin)
     }
 }
 
