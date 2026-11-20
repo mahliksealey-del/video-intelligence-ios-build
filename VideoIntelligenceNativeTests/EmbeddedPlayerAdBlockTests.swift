@@ -113,6 +113,21 @@ final class EmbeddedPlayerAdBlockTests: XCTestCase {
         }
     }
 
+    func testAdDomainRulesRejectSuffixImpostors() throws {
+        let data = Data(NativeAdBlocker.rulesJSON.utf8)
+        let rules = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [[String: Any]])
+        let first = try XCTUnwrap(rules.first?["trigger"] as? [String: Any])
+        let pattern = try XCTUnwrap(first["url-filter"] as? String)
+        let regex = try NSRegularExpression(pattern: pattern)
+        func matches(_ url: String) -> Bool {
+            regex.firstMatch(in: url, range: NSRange(url.startIndex..., in: url)) != nil
+        }
+        XCTAssertTrue(matches("https://ads.doubleclick.net/view/ad.js"))
+        XCTAssertTrue(matches("https://doubleclick.net/view/ad.js"))
+        XCTAssertFalse(matches("https://doubleclick.net.evil.example/ad.js"))
+        XCTAssertFalse(matches("https://notdoubleclick.net/ad.js"))
+    }
+
     func testNativeAdRulesCompileInWebKit() {
         let compiled = expectation(description: "native ad rule list compiled")
         guard let store = WKContentRuleListStore.default() else {
