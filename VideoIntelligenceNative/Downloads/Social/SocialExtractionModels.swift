@@ -65,7 +65,11 @@ enum SocialExtractionError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .authenticationRequired: return "The provider requires sign-in or has restricted anonymous access. For Instagram, sign in through Get Media and retry."
+        case .authenticationRequired(let detail):
+            if detail.lowercased().contains("[youtube]") || detail.lowercased().contains("youtube") {
+                return "YouTube rejected extraction or requires playback authorization. This may be an HTTP 403, an unavailable signed format, or a stream requiring a valid provider token. Use a public video and retry; the app does not bypass restrictions."
+            }
+            return "The provider requires sign-in or has restricted anonymous access. For Instagram, sign in through Get Media and retry."
         case .unavailable: return "This media is private, removed, geo-restricted, or unavailable."
         case .rateLimited: return "The provider is rate-limiting requests. Wait and try again."
         case .unsupported(let detail): return "The provider could not supply an iPhone-compatible stream. \(detail)"
