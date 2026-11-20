@@ -190,10 +190,11 @@ enum UniversalBrowserAddress {
         guard !value.isEmpty, !value.contains(where: { $0.isWhitespace }) else {
             throw MediaDownloadError.invalidURL
         }
-        let hasScheme = value.range(
-            of: #"^[A-Za-z][A-Za-z0-9+.-]*:"#,
-            options: .regularExpression
-        ) != nil
+        // Do not mistake "example.com:8443" for a custom URL scheme.
+        let lowered = value.lowercased()
+        let hasScheme = lowered.hasPrefix("https:") ||
+                        lowered.hasPrefix("http:") ||
+                        value.contains("://")
         let url = try MediaURLValidator.validate(hasScheme ? value : "https://" + value)
         guard url.user == nil, url.password == nil else {
             throw MediaDownloadError.invalidURL
