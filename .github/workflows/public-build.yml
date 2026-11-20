@@ -6,6 +6,7 @@ on:
   push:
     branches:
       - feature/whisper-full-large-v3-2026-11-20
+      - feature/universal-browser-resolver-2026-11-20
     paths:
       - .github/workflows/public-build.yml
   workflow_dispatch:
