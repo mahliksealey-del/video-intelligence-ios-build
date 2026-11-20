@@ -1,7 +1,7 @@
 name: Video Intelligence Public iOS Build
 
 on:
-  # UMR-2 WebKit regex compatibility acceptance build (2026-11-20): user-driven close + popup-window isolation.
+  # UMR-3 editable address bar iPhone acceptance build (2026-11-20).
   # One-off CI gate for this experimental branch. Only this workflow-file
   # change triggers a push build; ordinary source edits remain manual.
   push:
@@ -9,6 +9,7 @@ on:
       - feature/whisper-full-large-v3-2026-11-20
       - feature/universal-browser-resolver-2026-11-20
       - feature/universal-frame-media-detection-2026-11-20
+      - feature/universal-editable-address-bar-2026-11-20
     paths:
       - .github/workflows/public-build.yml
   workflow_dispatch:
