@@ -62,7 +62,11 @@ enum NativeAdBlocker {
     /// The rule list is compiled/loaded locally and attached only to this
     /// in-app WKWebView. Site login cookies are not shared externally.
     static func prepare(_ completion: @escaping (WKContentRuleList?, Error?) -> Void) {
-        let store = WKContentRuleListStore.default()
+        guard let store = WKContentRuleListStore.default() else {
+            completion(nil, NSError(domain: "VideoIntelligenceAdBlocker", code: 1,
+                                    userInfo: [NSLocalizedDescriptionKey: "The WebKit rule store is unavailable."]))
+            return
+        }
         store.lookUpContentRuleList(forIdentifier: identifier) { existing, error in
             if let existing {
                 completion(existing, nil)
