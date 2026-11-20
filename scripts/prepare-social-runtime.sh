@@ -91,6 +91,20 @@ PY
 install -m 0644 "$WORK/yt.solver.lib.js" "$EJS_DIR/yt.solver.lib.js"
 test -s "$EJS_DIR/yt.solver.lib.js"
 
+# Host-side import smoke check before waiting for the full iOS build. The
+# JavaScriptCore bridge itself is exercised on device; this verifies yt-dlp
+# and the Keraunos provider can actually import from this exact IPA runtime.
+PYTHONPATH="$RUNTIME/app_packages:$RUNTIME/app" python3 - <<'PY'
+from yt_dlp.extractor.youtube.jsc._builtin import vendor
+from yt_dlp.extractor.youtube.jsc._builtin.ejs import EJSBaseJCP
+from keraunos_youtube_jsc import KeraunosJavaScriptCoreJCP
+assert vendor.VERSION == "0.8.0"
+assert vendor.load_script("yt.solver.lib.js")
+assert vendor.load_script("yt.solver.core.js")
+assert issubclass(KeraunosJavaScriptCoreJCP, EJSBaseJCP)
+print("Verified bundled EJS core/library and native JavaScriptCore provider.")
+PY
+
 python3 scripts/patch-social-runtime.py "$RUNTIME/app/keraunos_extract.py"
 test -f "$RUNTIME/app/keraunos_extract.py"
 test -f "$RUNTIME/app/cacert.pem"
