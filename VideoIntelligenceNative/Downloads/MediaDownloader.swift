@@ -39,7 +39,8 @@ enum MediaProvider: String, Sendable {
 
     static func detect(_ url: URL) -> MediaProvider {
         let host = url.host?.lowercased() ?? ""
-        if host == "youtu.be" || host == "youtube.com" || host.hasSuffix(".youtube.com") { return .youtube }
+        if host == "youtu.be" || host == "youtube.com" || host.hasSuffix(".youtube.com")
+            || host == "youtube-nocookie.com" || host.hasSuffix(".youtube-nocookie.com") { return .youtube }
         if host == "tiktok.com" || host.hasSuffix(".tiktok.com") { return .tiktok }
         if host == "instagram.com" || host.hasSuffix(".instagram.com") { return .instagram }
         return .direct
