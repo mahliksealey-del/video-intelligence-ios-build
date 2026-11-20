@@ -34,6 +34,13 @@ enum ModelValidationError: LocalizedError {
 enum WhisperModelValidator {
     static let requiredPrefixes = ["MelSpectrogram", "AudioEncoder", "TextDecoder"]
 
+    /// Exact folder identity: never treat full Large V3 as a substring match
+    /// for its compressed or Turbo alternatives in the shared model cache.
+    static func matchesModelDirectory(_ folderName: String, selectedModel: String) -> Bool {
+        folderName == selectedModel ||
+            (!selectedModel.hasPrefix("openai_whisper-") && folderName == "openai_whisper-\(selectedModel)")
+    }
+
     static func validate(folder: URL, fileManager: FileManager = .default) throws {
         guard let enumerator = fileManager.enumerator(at: folder, includingPropertiesForKeys: [.isRegularFileKey]) else { throw ModelValidationError.incomplete(folder.lastPathComponent) }
         let names = enumerator.compactMap { ($0 as? URL)?.lastPathComponent }
@@ -132,7 +139,7 @@ final class WhisperModelManager: ObservableObject {
 
     private func findModel(named name: String, beneath base: URL) -> URL? {
         guard let enumerator = FileManager.default.enumerator(at: base, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) else { return nil }
-        return enumerator.compactMap { $0 as? URL }.first { $0.hasDirectoryPath && $0.lastPathComponent.localizedCaseInsensitiveContains(name) && (try? WhisperModelValidator.validate(folder: $0)) != nil }
+        return enumerator.compactMap { $0 as? URL }.first { $0.hasDirectoryPath && WhisperModelValidator.matchesModelDirectory($0.lastPathComponent, selectedModel: name) && (try? WhisperModelValidator.validate(folder: $0)) != nil }
     }
 
     private func checkStorage(for name: String, at base: URL) throws {
