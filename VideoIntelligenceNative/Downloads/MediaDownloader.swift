@@ -51,6 +51,14 @@ enum MediaResolutionRoute: Equatable {
     case browser
     case extractor
 
+    case universalBrowser
+
+    static func forURL(_ url: URL) -> MediaResolutionRoute {
+        if MediaProvider.detect(url) != .direct { return forProvider(MediaProvider.detect(url)) }
+        let mediaExtensions: Set<String> = ["mp4", "m4v", "mov", "mp3", "m4a", "aac", "wav", "ogg", "webm", "flac"]
+        return mediaExtensions.contains(url.pathExtension.lowercased()) ? .direct : .universalBrowser
+    }
+
     static func forProvider(_ provider: MediaProvider?) -> MediaResolutionRoute {
         switch provider {
         case .direct, .none: return .direct
