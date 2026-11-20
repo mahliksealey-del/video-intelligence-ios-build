@@ -81,6 +81,12 @@ final class WhisperModelManager: ObservableObject {
     }
 
     func download(_ name: String) {
+        // Only allow a known optional model; never auto-fetch a large model.
+        guard TranscriptionProfile.allCases.contains(where: { $0.model == name }) else { return }
+        guard TranscriptionModelRequirements.canRun(model: name) else {
+            setState(name, .failed("This larger speech model needs an iPhone with at least 8 GB of RAM. Keep using the working base.en or small.en model on this device."))
+            return
+        }
         downloadTask?.cancel()
         downloadStartedAt[name] = Date()
         setState(name, .downloading(0))
@@ -130,7 +136,7 @@ final class WhisperModelManager: ObservableObject {
     }
 
     private func checkStorage(for name: String, at base: URL) throws {
-        let estimate: Int64 = name == "small.en" ? 1_500_000_000 : 600_000_000
+        let estimate = TranscriptionModelRequirements.requiredFreeStorageBytes(for: name)
         let values = try base.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
         let available = values.volumeAvailableCapacityForImportantUsage ?? 0
         guard available > estimate else { throw ModelValidationError.insufficientStorage(required: estimate, available: available) }
