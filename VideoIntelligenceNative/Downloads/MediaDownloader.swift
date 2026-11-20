@@ -6,7 +6,6 @@ enum MediaDownloadError: LocalizedError, Equatable {
     case serverRejected(Int)
     case unsupportedContent
     case unsafeDestination
-    case tooLarge
     case providerRequiresExtractor(String)
 
     var errorDescription: String? {
@@ -16,7 +15,6 @@ enum MediaDownloadError: LocalizedError, Equatable {
         case .serverRejected(let code): return "The media server returned HTTP \(code)."
         case .unsupportedContent: return "This link did not return a supported media file. Webpages, protected streams, and DRM media are not supported."
         case .unsafeDestination: return "For your safety, downloads from this local or private-network address are blocked."
-        case .tooLarge: return "This download exceeds the 2 GB safety limit."
         case .providerRequiresExtractor(let provider): return "\(provider) links require an on-device extraction runtime that is not included in this build. Direct media links still work."
         }
     }
@@ -85,17 +83,57 @@ enum URLSafetyPolicy {
     }
 }
 
+/// No arbitrary file-size cap. Check *actual available storage* instead.
+/// If available space cannot be queried, the OS remains authoritative.
+enum DownloadStoragePolicy {
+    // Operating-system breathing room; this is NOT a per-file size limit.
+    static let systemReserveBytes: Int64 = 512 * 1024 * 1024
+
+    static func availableBytes(on volume: URL = FileManager.default.temporaryDirectory) -> Int64? {
+        guard let attributes = try? FileManager.default.attributesOfFileSystem(forPath: volume.path),
+              let free = attributes[.systemFreeSize] as? NSNumber else { return nil }
+        return free.int64Value
+    }
+
+    static func allows(available: Int64, remaining: Int64?) -> Bool {
+        let usable = available - systemReserveBytes
+        guard usable > 0 else { return false }
+        guard let remaining, remaining >= 0 else { return true }
+        return remaining <= usable
+    }
+
+    static func check(remaining: Int64? = nil,
+                      on volume: URL = FileManager.default.temporaryDirectory) throws {
+        guard let free = availableBytes(on: volume) else { return }
+        if !allows(available: free, remaining: remaining) {
+            throw DownloadStorageError(available: free, remaining: remaining)
+        }
+    }
+}
+
+struct DownloadStorageError: LocalizedError {
+    let available: Int64
+    let remaining: Int64?
+    var errorDescription: String? {
+        let free = ByteCountFormatter.string(fromByteCount: max(0, available), countStyle: .file)
+        if let remaining, remaining > 0 {
+            let need = ByteCountFormatter.string(fromByteCount: remaining, countStyle: .file)
+            return "Not enough free iPhone storage to finish this download (\(need) still needed, \(free) free). Video Intelligence has no fixed file-size limit. Free up space and retry."
+        }
+        return "iPhone storage is nearly full (\(free) free). Free up space and retry. Video Intelligence has no fixed file-size limit."
+    }
+}
+
 struct MediaDownloader {
-    static let maximumBytes: Int64 = 2_000_000_000
 
     func download(from url: URL, session: URLSession = .shared) async throws -> URL {
         let (temporaryURL, response) = try await session.download(from: url)
         guard let http = response as? HTTPURLResponse else { throw MediaDownloadError.unsupportedContent }
         guard (200...299).contains(http.statusCode) else { throw MediaDownloadError.serverRejected(http.statusCode) }
         guard let finalURL = response.url, URLSafetyPolicy.isPublic(finalURL) else { throw MediaDownloadError.unsafeDestination }
-        if response.expectedContentLength > Self.maximumBytes { throw MediaDownloadError.tooLarge }
+        // A completed multi-gigabyte download is valid regardless of size.
         let values = try temporaryURL.resourceValues(forKeys: [.fileSizeKey])
-        if Int64(values.fileSize ?? 0) > Self.maximumBytes { throw MediaDownloadError.tooLarge }
+        guard (values.fileSize ?? 0) > 0 else { throw MediaDownloadError.unsupportedContent }
         let suggested = response.suggestedFilename ?? url.lastPathComponent
         let destination = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension((suggested as NSString).pathExtension)
         try FileManager.default.moveItem(at: temporaryURL, to: destination)
