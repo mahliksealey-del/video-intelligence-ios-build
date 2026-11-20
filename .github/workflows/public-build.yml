@@ -1,13 +1,14 @@
 name: Video Intelligence Public iOS Build
 
 on:
-  # UMR-1 popup-handling CI gate (2026-11-20): user-driven close + popup-window isolation.
+  # UMR-2 iframe and blocker CI gate (2026-11-20): user-driven close + popup-window isolation.
   # One-off CI gate for this experimental branch. Only this workflow-file
   # change triggers a push build; ordinary source edits remain manual.
   push:
     branches:
       - feature/whisper-full-large-v3-2026-11-20
       - feature/universal-browser-resolver-2026-11-20
+      - feature/universal-frame-media-detection-2026-11-20
     paths:
       - .github/workflows/public-build.yml
   workflow_dispatch:
