@@ -23,20 +23,62 @@ enum TranscriptionProfile: String, Codable, CaseIterable, Identifiable, Sendable
     case fast
     case balanced
     case accurate
+    case medium
+    case largeTurbo
 
     var id: String { rawValue }
-    var title: String { rawValue.capitalized }
+    var title: String {
+        switch self {
+        case .fast: return "Fast"
+        case .balanced: return "Balanced"
+        case .accurate: return "Accurate"
+        case .medium: return "Medium (English)"
+        case .largeTurbo: return "Large V3 Turbo"
+        }
+    }
     var model: String {
         switch self {
         case .fast, .balanced: return "base.en"
         case .accurate: return "small.en"
+        case .medium: return "medium.en"
+        // Argmax's compact, 4-bit Core ML Large-v3-Turbo variant.
+        case .largeTurbo: return "large-v3-v20240930_626MB"
         }
     }
     var detail: String {
         switch self {
-        case .fast: return "base.en with minimal fallback"
+        case .fast: return "base.en with minimal fallback — fastest"
         case .balanced: return "base.en with English decoding and recovery"
-        case .accurate: return "small.en for higher quality; uses more storage and memory"
+        case .accurate: return "small.en — greater accuracy, modest memory use"
+        case .medium: return "medium.en — optional, higher-quality English; larger download and slower inference"
+        case .largeTurbo: return "Compressed Large V3 Turbo — optional maximum-quality experiment on 8 GB+ iPhones. Not automatically more accurate on every recording."
+        }
+    }
+}
+
+/// Conservative device and storage preflight for opt-in speech models. This
+/// isn't a measured performance guarantee; tested devices may vary.
+enum TranscriptionModelRequirements {
+    static let largeTurbo = "large-v3-v20240930_626MB"
+
+    static func minimumMemoryBytes(for model: String) -> UInt64 {
+        switch model {
+        case largeTurbo: return 8_000_000_000
+        default: return 0
+        }
+    }
+
+    static func canRun(model: String, physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory) -> Bool {
+        physicalMemory >= minimumMemoryBytes(for: model)
+    }
+
+    static func requiredFreeStorageBytes(for model: String) -> Int64 {
+        // Extra headroom for compiled Core ML assets, download staging and cache.
+        switch model {
+        case largeTurbo: return 3_000_000_000
+        case "medium.en": return 4_000_000_000
+        case "small.en": return 1_500_000_000
+        default: return 600_000_000
         }
     }
 }

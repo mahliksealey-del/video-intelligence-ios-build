@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import WebKit
 
 enum SocialDownloadMode: String, CaseIterable, Identifiable, Sendable {
     case video = "Download Video"
@@ -19,14 +20,28 @@ final class TrackDownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchec
     private var continuation: CheckedContinuation<URL, Error>?
     private var progress: (@Sendable (Double) -> Void)?
     private var session: URLSession?
+    private var usesTikTokBrowser = false
 
     func download(_ track: SocialMediaTrack, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
         self.progress = progress
+        self.usesTikTokBrowser = track.useBrowserCookies
         var request = URLRequest(url: track.url)
         track.headers.forEach { request.setValue($1, forHTTPHeaderField: $0) }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 30
         configuration.timeoutIntervalForResource = 3600
+        if track.useBrowserCookies {
+            // The TikTok WKWebView may have passed the provider's public
+            // challenge/consent page. Carry only that site's cookies into this
+            // isolated URLSession, with ordinary RFC domain/path matching.
+            // Never use the browser cookie store on YouTube/Instagram requests.
+            let all = await WKWebsiteDataStore.default().httpCookieStore.allCookies()
+            for cookie in all where Self.isTikTokCookieDomain(cookie.domain) {
+                configuration.httpCookieStorage?.setCookie(cookie)
+            }
+            configuration.httpCookieAcceptPolicy = .always
+            configuration.httpShouldSetCookies = true
+        }
         let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
         self.session = session
         return try await withTaskCancellationHandler {
@@ -37,9 +52,35 @@ final class TrackDownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchec
         } onCancel: { session.invalidateAndCancel() }
     }
 
+    static func isTikTokCookieDomain(_ value: String) -> Bool {
+        let host = value.lowercased().hasPrefix(".") ? String(value.lowercased().dropFirst()) : value.lowercased()
+        return host == "tiktok.com" || host.hasSuffix(".tiktok.com")
+            || host == "tiktokcdn.com" || host.hasSuffix(".tiktokcdn.com")
+            || host == "tiktokcdn-eu.com" || host.hasSuffix(".tiktokcdn-eu.com")
+            || host == "tiktokcdn-us.com" || host.hasSuffix(".tiktokcdn-us.com")
+    }
+
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
-        guard let response = downloadTask.response as? HTTPURLResponse, (200...299).contains(response.statusCode), let finalURL = response.url, URLSafetyPolicy.isPublic(finalURL) else {
-            continuation?.resume(throwing: MediaDownloadError.unsupportedContent); continuation = nil; return
+        guard let response = downloadTask.response as? HTTPURLResponse, let finalURL = response.url,
+              URLSafetyPolicy.isPublic(finalURL) else {
+            continuation?.resume(throwing: MediaDownloadError.unsupportedContent)
+            continuation = nil
+            return
+        }
+        if !(200...299).contains(response.statusCode) {
+            let error: Error = usesTikTokBrowser
+                ? SocialExtractionError.unsupported("TikTok's media endpoint returned HTTP \(response.statusCode) to the iPhone download request.")
+                : MediaDownloadError.unsupportedContent
+            continuation?.resume(throwing: error)
+            continuation = nil
+            return
+        }
+        let mime = (response.mimeType ?? "").lowercased()
+        if usesTikTokBrowser && (mime.contains("text/html") || mime.contains("application/json") || mime.contains("text/plain")) {
+            continuation?.resume(throwing: SocialExtractionError.unsupported(
+                "TikTok sent \(mime) instead of video (HTTP \(response.statusCode)); browser playback alone does not grant a separate download."))
+            continuation = nil
+            return
         }
         do {
             let size = Int64((try location.resourceValues(forKeys: [.fileSizeKey])).fileSize ?? 0)
@@ -101,9 +142,49 @@ actor SocialMediaDownloadService {
             let output: URL
             switch media.kind {
             case .progressive(let track):
-                let downloaded = try await TrackDownloadDelegate().download(track, progress: progress)
-                if mode == .audio || mode == .transcribe { output = try await extractAudio(from: downloaded, in: temporary) }
-                else { output = temporary.appendingPathComponent("download.mp4"); try FileManager.default.moveItem(at: downloaded, to: output) }
+                if track.useBrowserCookies {
+                    // A TikTok page can play one signed rendition while another
+                    // metadata rendition returns an HTML gate or an unplayable codec.
+                    // Validate each downloaded candidate locally before accepting it.
+                    let candidates = [track.url] + track.alternativeURLs
+                    var playable: URL?
+                    var lastFailure: Error?
+                    for (index, url) in candidates.enumerated() {
+                        try Task.checkCancellation()
+                        let staged = temporary.appendingPathComponent("candidate-\(index).mp4")
+                        do {
+                            let downloaded = try await TrackDownloadDelegate().download(track.selecting(url)) {
+                                progress((Double(index) + $0) / Double(candidates.count))
+                            }
+                            defer { try? FileManager.default.removeItem(at: downloaded) }
+                            try FileManager.default.moveItem(at: downloaded, to: staged)
+                            try await validate(staged, expectedAudioOnly: false)
+                            playable = staged
+                            break
+                        } catch is CancellationError {
+                            throw CancellationError()
+                        } catch {
+                            lastFailure = error
+                            try? FileManager.default.removeItem(at: staged)
+                        }
+                    }
+                    guard let playable else {
+                        let reason = lastFailure?.localizedDescription ?? "No video stream was available."
+                        throw SocialExtractionError.unsupported(
+                            "TikTok exposed \(candidates.count) browser stream option(s), but none could be downloaded as a playable video. Final attempt: \(String(reason.prefix(300)))")
+                    }
+                    if mode == .audio || mode == .transcribe {
+                        output = try await extractAudio(from: playable, in: temporary)
+                    } else {
+                        output = temporary.appendingPathComponent("download.mp4")
+                        try FileManager.default.moveItem(at: playable, to: output)
+                    }
+                    progress(1)
+                } else {
+                    let downloaded = try await TrackDownloadDelegate().download(track, progress: progress)
+                    if mode == .audio || mode == .transcribe { output = try await extractAudio(from: downloaded, in: temporary) }
+                    else { output = temporary.appendingPathComponent("download.mp4"); try FileManager.default.moveItem(at: downloaded, to: output) }
+                }
             case .adaptive(let video, let audio):
                 if mode == .audio || mode == .transcribe {
                     let downloaded = try await TrackDownloadDelegate().download(audio, progress: progress)

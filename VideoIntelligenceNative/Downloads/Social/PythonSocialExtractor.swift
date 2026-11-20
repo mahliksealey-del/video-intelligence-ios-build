@@ -10,16 +10,34 @@ final class PythonSocialExtractor: SocialMediaExtracting, @unchecked Sendable {
     private var initialized = false
 
     func listFormats(_ url: URL) async throws -> SocialFormatListing {
-        try await execute {
-            guard let result = keraunos_python_list_formats(url.absoluteString, nil) else { throw SocialExtractionError.runtime("Python returned no format response.") }
+        let cookieFile = try await InstagramSession.shared.temporaryCookieFile(for: url)
+        defer { if let cookieFile { try? FileManager.default.removeItem(at: cookieFile) } }
+        return try await execute {
+            let result: UnsafeMutablePointer<CChar>?
+            if let cookieFile {
+                result = cookieFile.path.withCString { keraunos_python_list_formats(url.absoluteString, $0) }
+            } else {
+                result = keraunos_python_list_formats(url.absoluteString, nil)
+            }
+            guard let result else { throw SocialExtractionError.runtime("Python returned no format response.") }
             defer { free(result) }
             return try SocialExtractionDecoder.listing(Data(String(cString: result).utf8))
         }
     }
 
     func resolve(_ url: URL, option: SocialFormatOption?) async throws -> ResolvedSocialMedia {
-        try await execute {
-            guard let result = keraunos_python_extract(url.absoluteString, nil, option?.formatID, option?.isAdaptive == true ? 1 : 0) else { throw SocialExtractionError.runtime("Python returned no extraction response.") }
+        let cookieFile = try await InstagramSession.shared.temporaryCookieFile(for: url)
+        defer { if let cookieFile { try? FileManager.default.removeItem(at: cookieFile) } }
+        return try await execute {
+            let result: UnsafeMutablePointer<CChar>?
+            if let cookieFile {
+                result = cookieFile.path.withCString {
+                    keraunos_python_extract(url.absoluteString, $0, option?.formatID, option?.isAdaptive == true ? 1 : 0)
+                }
+            } else {
+                result = keraunos_python_extract(url.absoluteString, nil, option?.formatID, option?.isAdaptive == true ? 1 : 0)
+            }
+            guard let result else { throw SocialExtractionError.runtime("Python returned no extraction response.") }
             defer { free(result) }
             return try SocialExtractionDecoder.resolved(Data(String(cString: result).utf8))
         }

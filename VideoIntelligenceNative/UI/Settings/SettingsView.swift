@@ -12,9 +12,17 @@ struct SettingsView: View {
                 Section("Transcription profile") {
                     Picker("Profile", selection: Binding(get: { library.modelManager.selectedProfile }, set: { library.modelManager.selectedProfile = $0 })) { ForEach(TranscriptionProfile.allCases) { Text($0.title).tag($0) } }
                     Text(library.modelManager.selectedProfile.detail).font(.footnote).foregroundStyle(.secondary)
+                    if !TranscriptionModelRequirements.canRun(model: library.modelManager.selectedProfile.model) {
+                        Label("Large V3 Turbo requires at least 8 GB RAM. Select another profile until you upgrade.", systemImage: "iphone.gen3.radiowaves.left.and.right")
+                            .font(.footnote).foregroundStyle(.orange)
+                    }
                 }
                 Section("Speech models") {
-                    ForEach(Array(Set(TranscriptionProfile.allCases.map(\.model))).sorted(), id: \.self) { name in modelRow(name) }
+                    ForEach(TranscriptionProfile.allCases.reduce(into: [String]()) { list, profile in
+                        if !list.contains(profile.model) { list.append(profile.model) }
+                    }, id: \.self) { name in
+                        ModelDownloadRow(name: name, manager: library.modelManager) { deleteModel = $0 }
+                    }
                     Text("Models download only with your action, remain in private Application Support, and are excluded from backup when supported.").font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Storage") {
@@ -38,25 +46,53 @@ struct SettingsView: View {
         }
     }
 
-    @ViewBuilder private func modelRow(_ name: String) -> some View {
-        let model = library.modelManager.models[name]
+}
+
+private struct ModelDownloadRow: View {
+    let name: String
+    @ObservedObject var manager: WhisperModelManager
+    let requestDelete: (InstalledModel) -> Void
+
+    var body: some View {
+        let model = manager.models[name]
         VStack(alignment: .leading, spacing: 8) {
             HStack { Text(name).font(.headline); Spacer(); if let model, model.bytes > 0 { Text(ByteCountFormatter.string(fromByteCount: model.bytes, countStyle: .file)).font(.caption).foregroundStyle(.secondary) } }
             switch model?.state ?? .unavailable {
             case .unavailable:
-                Button("Download") { library.modelManager.download(name) }
+                Button("Download") { manager.download(name) }
+                    .disabled(!TranscriptionModelRequirements.canRun(model: name))
             case .downloading(let progress):
-                ProgressView("Downloading…", value: progress)
-                Button("Cancel Download", role: .cancel) { library.modelManager.cancelDownload() }
+                ProgressView(value: progress) {
+                    Text(progress > 0 ? "Downloading… \(Int(progress * 100))%" : "Preparing model download…")
+                }
+                if let startedAt = manager.downloadStartedAt[name] {
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        let elapsed = max(0, context.date.timeIntervalSince(startedAt))
+                        if elapsed >= 5, progress > 0.08, progress < 0.98 {
+                            let remaining = min(86_400, elapsed * (1 - progress) / progress)
+                            Text("Elapsed \(MediaPlayerView.clock(elapsed)) · ~\(MediaPlayerView.clock(remaining)) left (approximate model ETA)")
+                                .font(.caption).foregroundStyle(.secondary)
+                        } else {
+                            Text("Elapsed \(MediaPlayerView.clock(elapsed)) · estimating model download time…")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                Button("Cancel Download", role: .cancel) { manager.cancelDownload() }
             case .downloaded:
                 ProgressView("Validating…")
             case .validated:
-                HStack { Label("Validated", systemImage: "checkmark.seal.fill").foregroundStyle(.green); Spacer(); Button("Delete", role: .destructive) { deleteModel = model } }
+                HStack { Label("Validated", systemImage: "checkmark.seal.fill").foregroundStyle(.green); Spacer(); if let model { Button("Delete", role: .destructive) { requestDelete(model) } } }
             case .loaded:
                 Label("Loaded", systemImage: "memorychip.fill").foregroundStyle(.green)
             case .failed(let message):
                 Text(message).font(.footnote).foregroundStyle(.red)
-                Button("Retry") { library.modelManager.download(name) }
+                Button("Retry") { manager.download(name) }
+                    .disabled(!TranscriptionModelRequirements.canRun(model: name))
+            }
+            if !TranscriptionModelRequirements.canRun(model: name) {
+                Text("For a future iPhone: requires 8 GB+ device RAM. Download is disabled here to protect the working transcription engine.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }.padding(.vertical, 4)
     }
