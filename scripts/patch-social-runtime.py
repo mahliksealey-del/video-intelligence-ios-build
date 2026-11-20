@@ -59,4 +59,44 @@ if source.count(old_jsc) != 1:
     raise SystemExit("Unexpected YouTube JSC import layout; refusing to patch")
 source = source.replace(old_jsc, new_jsc)
 
+
+# YouTube format-safety repair: the old broad [protocol^=http] selector includes
+# yt-dlp's 'http_dash_segments' entries. Their 'url' is only a fragment/base
+# endpoint; Video Intelligence's native HTTP downloader does not receive the
+# yt-dlp 'fragments' list, so downloading that URL alone cannot produce a
+# valid MP4. Use only direct HTTPS for YouTube, leaving all OTHER providers
+# exactly as before. This deliberately does not claim HLS/SABR support.
+youtube_helper = '''def _is_youtube_url(url):
+    hostname = (urlsplit(url).hostname or "").lower()
+    return hostname in ("youtube.com", "youtu.be", "youtube-nocookie.com") or (
+        hostname.endswith(".youtube.com") or hostname.endswith(".youtube-nocookie.com")
+    )
+
+
+def _native_supported_format(fmt, url):
+    return fmt.replace("protocol^=http", "protocol=https") if _is_youtube_url(url) else fmt
+
+
+'''
+anchor = 'def _is_http(fmt):\n'
+if source.count(anchor) != 1:
+    raise SystemExit("Missing yt-dlp HTTP format helper marker")
+source = source.replace(anchor, youtube_helper + anchor)
+old_extract_format = '"format": fmt,'
+old_list_format = '"format": _FORMAT,'
+if source.count(old_extract_format) != 1 or source.count(old_list_format) != 1:
+    raise SystemExit("Unexpected YouTube format opts layout")
+source = source.replace(old_extract_format, '"format": _native_supported_format(fmt, url),')
+source = source.replace(old_list_format, '"format": _native_supported_format(_FORMAT, url),')
+old_options = 'options = _muxable_height_options(info.get("formats") or [])'
+new_options = '''candidate_formats = info.get("formats") or []
+            if _is_youtube_url(url):
+                # A DASH fragments descriptor is NOT a direct downloadable URL.
+                candidate_formats = [f for f in candidate_formats
+                                     if f.get("protocol") == "https"]
+            options = _muxable_height_options(candidate_formats)'''
+if source.count(old_options) != 1:
+    raise SystemExit("Unexpected yt-dlp format-options layout")
+source = source.replace(old_options, new_options)
+
 source_path.write_text(source, encoding="utf-8")
