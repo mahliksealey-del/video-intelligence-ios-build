@@ -40,7 +40,7 @@ final class YouTubeRangeDownloaderTests: XCTestCase {
                        "bytes=0-10485759")
         XCTAssertEqual(YouTubeRangeDownloader.byteRange(start: 1_999_999_990,
                          chunkSize: 50_000_000, total: nil),
-                       "bytes=1999999990-1999999999")
+                       "bytes=1999999990-2010485749")
     }
 
     func testContentRangeParsesValid206ResponseAndRejectsUnsafeValues() {
@@ -51,11 +51,22 @@ final class YouTubeRangeDownloaderTests: XCTestCase {
         let next = YouTubeRangeDownloader.contentRange("Bytes 1024-2047/2048")
         XCTAssertEqual(next?.start, 1024)
         XCTAssertEqual(next?.end, 2047)
+        // Valid HTTP byte ranges and complete files do not stop at 2 GB.
+        let multiGig = YouTubeRangeDownloader.contentRange(
+            "bytes 2147483648-2147484671/12000000000")
+        XCTAssertEqual(multiGig?.start, 2_147_483_648)
+        XCTAssertEqual(multiGig?.end, 2_147_484_671)
+        XCTAssertEqual(multiGig?.total, 12_000_000_000)
+        XCTAssertEqual(
+            YouTubeRangeDownloader.byteRange(start: 10_000_000_000,
+                                            chunkSize: 1_000_000, total: 12_000_000_000),
+            "bytes=10000000000-10000999999"
+        )
 
         for invalid in [
             nil, "", "0-100/200", "bytes */200", "bytes 0-9/*",
             "bytes 100-99/200", "bytes 0-100/100", "bytes -1-10/100",
-            "bytes 0-10/9999999999999", "bytes 0-10", "bytes 0-10/0"
+            "bytes 0-10/9223372036854775808", "bytes 0-10", "bytes 0-10/0"
         ] as [String?] {
             XCTAssertNil(YouTubeRangeDownloader.contentRange(invalid),
                          "Invalid range should be rejected: \(invalid ?? "nil")")
