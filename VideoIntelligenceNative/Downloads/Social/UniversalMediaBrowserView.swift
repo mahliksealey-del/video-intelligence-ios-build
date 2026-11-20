@@ -140,6 +140,47 @@ enum UniversalWebMediaResolver {
     """#
 }
 
+/// Explicit, optional popup controls. Never auto-consent, dismiss a paywall,
+/// or evaluate executable code from a webpage as native Swift.
+enum UniversalBrowserPopupPolicy {
+    static func canOpenNewWindow(_ url: URL?, userInitiated: Bool) -> Bool {
+        guard userInitiated, let url else { return false }
+        return url.scheme?.lowercased() == "https" && URLSafetyPolicy.isPublic(url)
+    }
+
+    /// Click only an explicit CLOSE/DISMISS control in a visible popup.
+    /// The user invokes this after inspecting the page; no auto-acceptance.
+    static let dismissScript = #"""
+    (() => {
+      const visible = (el) => {
+        const r = el.getBoundingClientRect();
+        const s = getComputedStyle(el);
+        return r.width > 0 && r.height > 0 && s.display !== 'none' &&
+               s.visibility !== 'hidden' && s.opacity !== '0';
+      };
+      const containers = [...document.querySelectorAll(
+        'dialog[open], [role="dialog"], [aria-modal="true"], [class*="modal"], [class*="popup"], [id*="popup"], [class*="overlay"]'
+      )].filter(visible).slice(0, 30);
+      const allowed = /^(close|close ad|close advertisement|dismiss|dismiss ad|skip ad|not now|no thanks|×|✕|x)$/i;
+      for (const container of containers) {
+        // Do not dismiss authorization, age, payment, verification or subscription gates.
+        const classification = [container.getAttribute('aria-label') || '',
+          container.getAttribute('id') || '', String(container.className || '')].join(' ');
+        if (/paywall|login|sign.in|payment|checkout|purchase|captcha|age.gate|verification/i.test(classification)) continue;
+        const buttons = container.querySelectorAll('button, [role="button"]');
+        for (const button of buttons) {
+          if (!visible(button) || button.closest('a[href]')) continue;
+          const label = (button.getAttribute('aria-label') || button.textContent || '').trim();
+          if (!allowed.test(label)) continue;
+          button.click();
+          return 'An available popup close button was pressed. Tap Find Video after playback starts.';
+        }
+      }
+      return 'No ordinary popup close button was found. Close the popup manually or finish any required sign-in or consent choice.';
+    })();
+    """#
+}
+
 /// Foreground browser allows ordinary website navigation and user-owned sign-in.
 /// Only a user-selected direct video can be handed to the library downloader.
 struct UniversalMediaBrowserView: View {
@@ -158,12 +199,17 @@ struct UniversalMediaBrowserView: View {
             VStack(spacing: 8) {
                 Text("Browse or sign in, play the video, then tap Find Video. Only media you select is saved.")
                     .font(.footnote).foregroundStyle(.secondary).padding(.horizontal)
-                HStack {
-                    Button("Back") { webView?.goBack() }
+                HStack(spacing: 10) {
+                    Button { webView?.goBack() } label: { Image(systemName: "chevron.left") }
+                        .accessibilityLabel("Back")
                         .disabled(webView?.canGoBack != true)
-                    Button("Reload") { webView?.reload(); candidates = [] }
+                    Button { webView?.reload(); candidates = [] } label: { Image(systemName: "arrow.clockwise") }
+                        .accessibilityLabel("Reload")
                         .disabled(webView == nil)
-                    Spacer()
+                    Button("Dismiss Popup") { dismissPopup() }
+                        .disabled(webView == nil)
+                        .font(.footnote)
+                    Spacer(minLength: 0)
                     Button(isInspecting ? "Checking…" : "Find Video") { inspect() }
                         .disabled(webView == nil || isInspecting)
                         .buttonStyle(.borderedProminent)
@@ -204,6 +250,19 @@ struct UniversalMediaBrowserView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
+            }
+        }
+    }
+
+    private func dismissPopup() {
+        guard let webView else { return }
+        webView.evaluateJavaScript(UniversalBrowserPopupPolicy.dismissScript) { result, error in
+            Task { @MainActor in
+                if let error {
+                    statusText = "Unable to dismiss popup: \(error.localizedDescription)"
+                } else {
+                    statusText = result as? String ?? "Popup action completed. Try playing the video."
+                }
             }
         }
     }
@@ -258,6 +317,7 @@ private struct UniversalBrowserWebView: UIViewRepresentable {
         configuration.websiteDataStore = .default()
         let created = WKWebView(frame: .zero, configuration: configuration)
         created.navigationDelegate = context.coordinator
+        created.uiDelegate = context.coordinator
         created.load(URLRequest(url: url))
         DispatchQueue.main.async { self.webView = created }
         return created
@@ -265,9 +325,23 @@ private struct UniversalBrowserWebView: UIViewRepresentable {
 
     func updateUIView(_ uiView: WKWebView, context: Context) {}
 
-    final class Coordinator: NSObject, WKNavigationDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         private let statusText: Binding<String?>
         init(statusText: Binding<String?>) { self.statusText = statusText }
+
+        func webView(_ webView: WKWebView,
+                     createWebViewWith configuration: WKWebViewConfiguration,
+                     for navigationAction: WKNavigationAction,
+                     windowFeatures: WKWindowFeatures) -> WKWebView? {
+            let userTapped = navigationAction.navigationType == .linkActivated
+            if UniversalBrowserPopupPolicy.canOpenNewWindow(navigationAction.request.url,
+                                                             userInitiated: userTapped) {
+                webView.load(navigationAction.request)
+            } else {
+                statusText.wrappedValue = "An unsolicited popup window was blocked. Use ordinary links to navigate to the video."
+            }
+            return nil
+        }
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
             if (error as NSError).code != NSURLErrorCancelled {
