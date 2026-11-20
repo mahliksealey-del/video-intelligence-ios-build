@@ -12,9 +12,15 @@ struct SettingsView: View {
                 Section("Transcription profile") {
                     Picker("Profile", selection: Binding(get: { library.modelManager.selectedProfile }, set: { library.modelManager.selectedProfile = $0 })) { ForEach(TranscriptionProfile.allCases) { Text($0.title).tag($0) } }
                     Text(library.modelManager.selectedProfile.detail).font(.footnote).foregroundStyle(.secondary)
+                    if !TranscriptionModelRequirements.canRun(model: library.modelManager.selectedProfile.model) {
+                        Label("Large V3 Turbo requires at least 8 GB RAM. Select another profile until you upgrade.", systemImage: "iphone.gen3.radiowaves.left.and.right")
+                            .font(.footnote).foregroundStyle(.orange)
+                    }
                 }
                 Section("Speech models") {
-                    ForEach(Array(Set(TranscriptionProfile.allCases.map(\.model))).sorted(), id: \.self) { name in
+                    ForEach(TranscriptionProfile.allCases.reduce(into: [String]()) { list, profile in
+                        if !list.contains(profile.model) { list.append(profile.model) }
+                    }, id: \.self) { name in
                         ModelDownloadRow(name: name, manager: library.modelManager) { deleteModel = $0 }
                     }
                     Text("Models download only with your action, remain in private Application Support, and are excluded from backup when supported.").font(.footnote).foregroundStyle(.secondary)
@@ -54,6 +60,7 @@ private struct ModelDownloadRow: View {
             switch model?.state ?? .unavailable {
             case .unavailable:
                 Button("Download") { manager.download(name) }
+                    .disabled(!TranscriptionModelRequirements.canRun(model: name))
             case .downloading(let progress):
                 ProgressView(value: progress) {
                     Text(progress > 0 ? "Downloading… \(Int(progress * 100))%" : "Preparing model download…")
@@ -81,6 +88,11 @@ private struct ModelDownloadRow: View {
             case .failed(let message):
                 Text(message).font(.footnote).foregroundStyle(.red)
                 Button("Retry") { manager.download(name) }
+                    .disabled(!TranscriptionModelRequirements.canRun(model: name))
+            }
+            if !TranscriptionModelRequirements.canRun(model: name) {
+                Text("For a future iPhone: requires 8 GB+ device RAM. Download is disabled here to protect the working transcription engine.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }.padding(.vertical, 4)
     }
