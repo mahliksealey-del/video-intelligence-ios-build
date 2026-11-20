@@ -1,5 +1,27 @@
 import Foundation
 
+/// Distinguishes video-server access failures from a missing iPhone codec.
+/// No URL signatures, cookies, or authentication tokens appear in the message.
+struct YouTubeStreamAccessError: LocalizedError, Equatable {
+    let statusCode: Int
+
+    var errorDescription: String? {
+        switch statusCode {
+        case 401, 403:
+            return "YouTube's video server rejected the extracted stream (HTTP \(statusCode)). This can happen when a signed URL expires, the selected player client is blocked, or a playback token is unavailable. Try resolving the video again or selecting a different available format."
+        case 429:
+            return "YouTube's video server is rate-limiting the download (HTTP 429). Avoid repeated retries and try again later."
+        default:
+            return "YouTube's video server returned HTTP \(statusCode) instead of the requested media."
+        }
+    }
+
+    static func isYouTubeMediaHost(_ host: String?) -> Bool {
+        guard let host = host?.lowercased() else { return false }
+        return host == "googlevideo.com" || host.hasSuffix(".googlevideo.com")
+    }
+}
+
 /// yt-dlp's YouTube formats can specify downloader_options.http_chunk_size.
 /// Honor that instruction for googlevideo.com media only. Other providers keep
 /// the existing URLSession download path and cookies/session behavior unchanged.
@@ -100,6 +122,9 @@ struct YouTubeRangeDownloader {
                 return output
             }
 
+            if [401, 403, 429].contains(http.statusCode) {
+                throw YouTubeStreamAccessError(statusCode: http.statusCode)
+            }
             guard http.statusCode == 206,
                   let range = Self.contentRange(http.value(forHTTPHeaderField: "Content-Range")),
                   range.start == offset,
