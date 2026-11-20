@@ -14,10 +14,11 @@ struct URLImportView: View {
     @State private var errorMessage: String?
     @State private var showTikTokBrowser = false
     @State private var showUniversalBrowser = false
+    @State private var queuedProviderHandoff: URL?
     @State private var tikTokMode: SocialDownloadMode = .video
     @State private var universalMode: SocialDownloadMode = .video
 
-    private var provider: MediaProvider? { (try? MediaURLValidator.validate(value)).map(MediaProvider.detect) }
+    private var provider: MediaProvider? { (try? UniversalBrowserAddress.resolve(value)).map(MediaProvider.detect) }
 
     var body: some View {
         NavigationStack {
@@ -112,7 +113,9 @@ struct URLImportView: View {
                 if let errorMessage {
                     Section {
                         Text(errorMessage).foregroundStyle(.red)
-
+                        if provider == .youtube || provider == .instagram {
+                            Button("Try Website Browser") { showUniversalBrowser = true }
+                        }
                     }
                 }
                 Section { Text("Extraction and transfer run locally. Private, DRM-protected, unavailable, or authentication-gated media is not bypassed. Download only media you are authorized to save.").font(.footnote).foregroundStyle(.secondary) }
@@ -131,15 +134,36 @@ struct URLImportView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showUniversalBrowser) {
-                if let url = try? MediaURLValidator.validate(value), MediaProvider.detect(url) == .direct {
-                    UniversalMediaBrowserView(url: url, mode: universalMode) { media, pageURL in
-                        sourceURL = pageURL
-                        formats = []
-                        resolved = nil
-                        errorMessage = nil
-                        library.downloadSocial(media, sourceURL: pageURL, mode: universalMode)
-                    }
+            .sheet(isPresented: $showUniversalBrowser, onDismiss: {
+                // Defer provider extraction until the browser sheet is fully
+                // dismissed; avoids racing the TikTok browser or format picker
+                // against another active SwiftUI sheet.
+                if let handoff = queuedProviderHandoff {
+                    queuedProviderHandoff = nil
+                    value = handoff.absoluteString
+                    resolve()
+                }
+            }) {
+                if let url = try? UniversalBrowserAddress.resolve(value) {
+                    UniversalMediaBrowserView(
+                        url: url,
+                        mode: universalMode,
+                        onResolved: { media, pageURL in
+                            sourceURL = pageURL
+                            formats = []
+                            resolved = nil
+                            errorMessage = nil
+                            library.downloadSocial(media, sourceURL: pageURL, mode: universalMode)
+                        },
+                        onProviderLink: { providerURL, selectedMode in
+                            queuedProviderHandoff = providerURL
+                            universalMode = selectedMode
+                            if MediaProvider.detect(providerURL) == .tiktok {
+                                tikTokMode = selectedMode
+                            }
+                            showUniversalBrowser = false
+                        }
+                    )
                 }
             }
             .task { await instagramSession.refresh() }
@@ -157,7 +181,7 @@ struct URLImportView: View {
     }
 
     private var actionTitle: String {
-        guard let url = try? MediaURLValidator.validate(value) else { return "Open" }
+        guard let url = try? UniversalBrowserAddress.resolve(value) else { return "Open" }
         switch MediaResolutionRoute.forURL(url) {
         case .direct: return "Download"
         case .browser: return "Open TikTok"
@@ -169,8 +193,10 @@ struct URLImportView: View {
     private func resolve() {
         errorMessage = nil; formats = []; resolved = nil
         let url: URL
-        do { url = try MediaURLValidator.validate(value) }
-        catch { errorMessage = error.localizedDescription; return }
+        do {
+            url = try UniversalBrowserAddress.resolve(value)
+            value = url.absoluteString
+        } catch { errorMessage = error.localizedDescription; return }
         switch MediaResolutionRoute.forURL(url) {
         case .direct:
             library.importURL(value)
