@@ -17,6 +17,7 @@ VideoIntelligenceNative/Downloads/Social/PythonSocialExtractor.swift
 VideoIntelligenceNative/Downloads/Social/TikTokBrowserFallbackView.swift
 VideoIntelligenceNative/Downloads/Social/UniversalMediaBrowserView.swift
 VideoIntelligenceNative/Downloads/Social/HLSOfflineDownloadService.swift
+VideoIntelligenceNative/Downloads/Social/ActiveVideoResolver.swift
 VideoIntelligenceNative/Downloads/Social/UniversalMediaFrameProbe.swift
 VideoIntelligenceNative/Downloads/Social/UniversalMediaFrameResult.swift
 VideoIntelligenceNative/Downloads/Social/NativeAdBlocker.swift
