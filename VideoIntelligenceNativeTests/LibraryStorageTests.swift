@@ -79,6 +79,76 @@ final class LibraryStorageTests: XCTestCase {
         }
     }
 
+    func testLegacyAbsoluteHLSRecoversAfterContainerUUIDChanges() async throws {
+        // Simulate the same Library-relative package moved under a new app
+        // sandbox UUID by iOS. No copied or relocated package is invented.
+        let relocated = root.appendingPathComponent("Library/OfflineVideo/test.movpkg", isDirectory: true)
+        try FileManager.default.createDirectory(at: relocated, withIntermediateDirectories: true)
+        try Data([1, 2, 3]).write(to: relocated.appendingPathComponent("segment"))
+
+        let old = URL(fileURLWithPath:
+            "/private/var/mobile/Containers/Data/Application/11111111-1111-1111-1111-111111111111/Library/OfflineVideo/test.movpkg")
+        let reference = "hlsasset:" + Data(old.absoluteString.utf8).base64EncodedString()
+        let resolved = try await storage.URLFor(relativePath: reference)
+        XCTAssertEqual(resolved.standardizedFileURL, relocated.standardizedFileURL)
+
+        var item = fixtureItem()
+        item.mediaRelativePath = reference
+        let recovered = await storage.repairOfflineHLSReferences([item])
+        XCTAssertEqual(recovered.repaired, 1)
+        XCTAssertEqual(recovered.unresolved, 0)
+        XCTAssertTrue(recovered.items[0].mediaRelativePath?.hasPrefix("hlsrel:") == true)
+        XCTAssertNotEqual(recovered.items[0].mediaRelativePath, reference)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: relocated.path))
+
+        try await storage.saveIndex(MediaLibraryIndex(items: recovered.items))
+        let reloaded = try await storage.loadIndex()
+        let newStorage = LibraryStorage(
+            documentsURL: root.appendingPathComponent("Documents"),
+            applicationSupportURL: root.appendingPathComponent("Support"),
+            cachesURL: root.appendingPathComponent("Caches"))
+        let saved = try XCTUnwrap(reloaded.items[0].mediaRelativePath)
+        let opened = try await newStorage.URLFor(relativePath: saved)
+        XCTAssertEqual(opened.standardizedFileURL, relocated.standardizedFileURL)
+    }
+
+    func testNewHLSReferencesArePortableWithinAppContainer() async throws {
+        let package = root.appendingPathComponent("Library/SystemMedia/short.movpkg", isDirectory: true)
+        try FileManager.default.createDirectory(at: package, withIntermediateDirectories: true)
+        let reference = try await storage.registerOfflineHLSAsset(at: package)
+        XCTAssertTrue(reference.hasPrefix("hlsrel:"))
+        XCTAssertFalse(reference.contains(root.lastPathComponent))
+        let resolved = try await storage.URLFor(relativePath: reference)
+        XCTAssertEqual(resolved.standardizedFileURL, package.standardizedFileURL)
+    }
+
+    func testMissingHLSPackageIsNotDeletedOrSilentlyRebound() async throws {
+        let old = URL(fileURLWithPath:
+            "/private/var/mobile/Containers/Data/Application/11111111-1111-1111-1111-111111111111/Library/OfflineVideo/missing.movpkg")
+        let reference = "hlsasset:" + Data(old.absoluteString.utf8).base64EncodedString()
+        var item = fixtureItem()
+        item.mediaRelativePath = reference
+        let report = await storage.repairOfflineHLSReferences([item])
+        XCTAssertEqual(report.repaired, 0)
+        XCTAssertEqual(report.unresolved, 1)
+        XCTAssertEqual(report.items[0].mediaRelativePath, reference)
+        XCTAssertThrowsError(try storage.URLFor(relativePath: reference))
+        // Index and transcript remain intact for future recovery.
+        try await storage.saveIndex(MediaLibraryIndex(items: report.items))
+        XCTAssertEqual(try await storage.loadIndex().items[0].mediaRelativePath, reference)
+    }
+
+    func testOfflineHLSRelativeReferenceRejectsPathTraversal() async throws {
+        let unsafe = "hlsrel:" +
+            Data("Library/../Documents/other.movpkg".utf8).base64EncodedString()
+        do {
+            _ = try await storage.URLFor(relativePath: unsafe)
+            XCTFail("HLS references must never escape the app container")
+        } catch StorageError.invalidRelativePath {
+            // Expected.
+        }
+    }
+
     private func fixtureItem() -> MediaLibraryItem {
         MediaLibraryItem(id: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!, title: "Recording", kind: .audio, sourceFilename: "recording.m4a", mediaRelativePath: "Audio/recording.m4a", importedAt: Date(timeIntervalSince1970: 1_700_000_000), duration: 4, status: .ready, progress: 0)
     }
