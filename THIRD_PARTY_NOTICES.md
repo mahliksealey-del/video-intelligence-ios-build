@@ -29,3 +29,16 @@ The archive provides the embedded CPython XCFramework. CPython and the support p
 - Resolved revision: `1bbc57cb7fe6410248a685b1c5a3c6d56adc2ed4`
 
 WhisperKit remains isolated behind the transcription interface. Model weights are downloaded only by an explicit user action and are not distributed in source or build artifacts.
+
+## hls2mp4 / minimp4 — source-based HLS MP4 experiment
+
+- Upstream: https://github.com/cstsortan/hls2mp4
+- Pinned source commit: 2e3adcbc95c689be2ff66d854ce38675e988eb17 (2026-03-19)
+- License: MIT; retained in VideoIntelligenceNative/MediaProcessing/HLSRemux/LICENSE-MIT.txt
+- minimp4 by lieff: public-domain notice preserved in minimp4.h.
+- Vendored code: HLS playlist parser, MPEG-TS demuxer, H.264/AAC MP4 muxer and C headers.
+- Video Intelligence authors replaced upstream libcurl and mbedTLS platform modules with native Foundation URLSession (http.m) and CommonCrypto (aes.m), with HTTPS redirect checks and bounded requests.
+- Source-based, user-selected VOD m3u8 to a new MP4 only; Apple's offline movpkg is never modified.
+- MPEG-TS path supports H.264/AAC; a separate Swift path handles basic unencrypted fMP4/CMAF.
+- No libcurl, mbedTLS, or upstream native binary is shipped with this experiment.
+- MIT code is included in the GPLv3 application with preserved notices.
