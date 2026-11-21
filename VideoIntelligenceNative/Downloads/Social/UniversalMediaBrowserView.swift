@@ -303,7 +303,7 @@ struct UniversalMediaBrowserView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 8) {
-                Text("Play the video or enter PiP, then tap Capture Playing. Preview that clip before saving.")
+                Text("Play a video (or use PiP), then tap Get Video. Preview that exact clip before saving.")
                     .font(.footnote).foregroundStyle(.secondary).padding(.horizontal)
                 HStack(spacing: 8) {
                     Image(systemName: "globe").foregroundStyle(.secondary)
