@@ -74,6 +74,7 @@ struct TorRoutingView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @State private var state: CheckState = .notChecked
+    @State private var checkGeneration = UUID()
 
     private enum CheckState {
         case notChecked
@@ -147,7 +148,10 @@ struct TorRoutingView: View {
             .onChange(of: scenePhase) { phase in
                 // Never display stale "Tor connected" after leaving to Orbot:
                 // VPN state can change outside this app at any time.
-                if phase != .active { state = .notChecked }
+                if phase != .active {
+                    checkGeneration = UUID()
+                    state = .notChecked
+                }
             }
         }
     }
@@ -158,14 +162,19 @@ struct TorRoutingView: View {
     }
 
     private func checkTor() {
+        let generation = UUID()
+        checkGeneration = generation
         state = .checking
         Task { @MainActor in
             do {
-                switch try await TorRouteVerifier().check() {
+                let result = try await TorRouteVerifier().check()
+                guard checkGeneration == generation, scenePhase == .active else { return }
+                switch result {
                 case .confirmed(let ip): state = .confirmed(ip)
                 case .notConfirmed(let ip): state = .notConfirmed(ip)
                 }
             } catch {
+                guard checkGeneration == generation, scenePhase == .active else { return }
                 state = .failed(error.localizedDescription)
             }
         }
