@@ -432,8 +432,10 @@ struct UniversalMediaBrowserView: View {
                                             Button("Save") { save(candidate) }
                                                 .buttonStyle(.borderedProminent)
                                         } else if candidate.kind == .hls {
-                                            Button("Save Offline") { saveHLS(candidate) }
+                                            Button("Save MP4") { saveHLSasMP4(candidate) }
                                                 .buttonStyle(.borderedProminent)
+                                            Button("Save Offline") { saveHLS(candidate) }
+                                                .buttonStyle(.bordered)
                                         } else if candidate.kind == .embed {
                                             Button("Open Player") { openEmbedded(candidate) }
                                                 .buttonStyle(.bordered)
@@ -645,6 +647,14 @@ struct UniversalMediaBrowserView: View {
         statusText = "Opened the selected clip. Play it, then tap Capture Playing."
         approvedAddressNavigation = url
         webView.load(URLRequest(url: url))
+    }
+
+    private func saveHLSasMP4(_ candidate: UniversalWebMediaCandidate) {
+        if library.queueBrowserHLSMP4(candidate) != nil {
+            statusText = "MP4 conversion queued. The video source will be remuxed into a separate shareable file without altering the offline HLS package. Check Downloads for progress and Play / Review."
+        } else {
+            statusText = library.errorMessage ?? "Unable to queue MP4 conversion."
+        }
     }
 
     private func saveHLS(_ candidate: UniversalWebMediaCandidate) {
