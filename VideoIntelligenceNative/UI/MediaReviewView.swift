@@ -12,6 +12,7 @@ struct MediaReviewView: View {
     @State private var shareURL: URL?
     @State private var confirmDelete = false
     @State private var isExportingMedia = false
+    @State private var exportProgress: Double = 0
     @State private var exportErrorMessage: String?
 
     private var item: MediaLibraryItem? { library.items.first { $0.id == itemID } }
@@ -44,7 +45,9 @@ struct MediaReviewView: View {
                     }
                     actionPanel(item)
                     if isExportingMedia {
-                        ProgressView("Preparing MP4 export on this iPhone…")
+                        ProgressView(value: exportProgress) {
+                            Text("Preparing shareable MP4… \(Int(exportProgress * 100))%")
+                        }
                     }
                     if item.status == .transcribing || item.status == .extractingAudio {
                         VStack(alignment: .leading, spacing: 6) {
@@ -94,7 +97,9 @@ struct MediaReviewView: View {
                 }
                 if item.mediaRelativePath != nil {
                     if item.sourceFilename.lowercased().hasSuffix(".movpkg") {
-                        Button("Try Convert Offline HLS to MP4") { exportMedia(item) }
+                        Button(item.hlsPlaylistURL == nil
+                               ? "Try Convert Offline HLS to MP4"
+                               : "Export HLS Source as MP4") { exportMedia(item) }
                             .disabled(isExportingMedia || mediaURL == nil)
                         Text("Apple-managed HLS packages might not be exportable. If conversion fails, try a direct MP4 from the source page.")
                             .font(.caption).foregroundStyle(.secondary)
@@ -181,6 +186,7 @@ struct MediaReviewView: View {
     private func exportMedia(_ item: MediaLibraryItem) {
         guard let relativePath = item.mediaRelativePath, !isExportingMedia else { return }
         isExportingMedia = true
+        exportProgress = 0
         Task {
             defer { isExportingMedia = false }
             let folder = FileManager.default.temporaryDirectory
@@ -201,16 +207,34 @@ struct MediaReviewView: View {
                     ? (item.kind == .video ? "mp4" : "m4a") : source.pathExtension)
                 let destination = folder.appendingPathComponent(filename)
                     .appendingPathExtension(ext)
-                if isHLS {
+                if isHLS, let original = item.hlsPlaylistURL,
+                   let playlist = URL(string: original),
+                   let page = shareableSourcePage(for: item) {
+                    // New HLS saves remember their selected playlist. Re-fetch
+                    // and remux the original clear VOD stream, never the
+                    // system-managed offline .movpkg package.
+                    let candidate = UniversalWebMediaCandidate(
+                        url: playlist, pageURL: page,
+                        title: item.title, userAgent: nil,
+                        kind: .hls, isPlaying: false)
+                    let converted = try await HLSMP4ConversionService().convert(candidate) { value in
+                        Task { @MainActor in exportProgress = value }
+                    }
+                    defer { try? FileManager.default.removeItem(at: converted) }
+                    try FileManager.default.copyItem(at: converted, to: destination)
+                } else if isHLS {
+                    // Legacy HLS library entries did not record their source
+                    // manifest. Preserve Apple's existing best-effort export.
                     try await exportOfflineHLS(from: source, to: destination)
                 } else {
                     try FileManager.default.copyItem(at: source, to: destination)
                 }
+                exportProgress = 1
                 shareURL = destination
             } catch {
                 try? FileManager.default.removeItem(at: folder)
                 if item.sourceFilename.lowercased().hasSuffix(".movpkg") {
-                    exportErrorMessage = "iOS could not convert this offline HLS package into MP4 (\(error.localizedDescription)). The original file was not altered. Apple's exporter does not reliably support offline HLS packages. For a shareable file, open the original page and use Get Video to find a direct MP4. A future HLS-to-MP4 remuxer would need access to the original unprotected stream."
+                    exportErrorMessage = "HLS MP4 conversion failed (\(error.localizedDescription)). Your offline file was not altered. If this older entry lacks its original playlist URL, open the source page, play the clip, tap Get Video, then Save MP4 to make a separate file."
                 } else {
                     exportErrorMessage = "Unable to export media: \(error.localizedDescription)"
                 }
