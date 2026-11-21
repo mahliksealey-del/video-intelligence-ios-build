@@ -124,7 +124,9 @@ struct RedGifsSelectedClipResolver {
               !token.isEmpty, token.count < 4096 else {
             throw ResolutionError.missingToken
         }
-        let detailURL = URL(string: "https://api.redgifs.com/v2/gifs/" + id)!
+        // RedGifs API identifiers are canonically lowercase (as in yt-dlp).
+        let apiID = id.lowercased()
+        let detailURL = URL(string: "https://api.redgifs.com/v2/gifs/" + apiID)!
         var request = URLRequest(url: detailURL)
         // Same public-API headers used by the upstream yt-dlp extractor.
         // No website cookies or user credentials are imported.
@@ -132,7 +134,7 @@ struct RedGifsSelectedClipResolver {
         request.setValue("https://www.redgifs.com/", forHTTPHeaderField: "Referer")
         request.setValue("https://www.redgifs.com", forHTTPHeaderField: "Origin")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("https://www.redgifs.com/watch/" + id,
+        request.setValue("https://www.redgifs.com/watch/" + apiID,
                          forHTTPHeaderField: "X-Customheader")
         let (body, httpResponse) = try await session.data(for: request)
         guard (httpResponse as? HTTPURLResponse)?.statusCode == 200 else {
