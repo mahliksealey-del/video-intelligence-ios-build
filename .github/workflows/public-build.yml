@@ -1,7 +1,7 @@
 name: Video Intelligence Public iOS Build
 
 on:
-  # YouTube direct HTTPS-only format and client-defaults final iOS acceptance gate.
+  # Orbot optional privacy routing: native test compilation and unsigned ARM64 app validation.
   # One-off CI gate for this experimental branch. Only this workflow-file
   # change triggers a push build; ordinary source edits remain manual.
   push:
@@ -13,6 +13,7 @@ on:
       - fix/social-provider-download-routing-ejs-2026-11-20
       - fix/browser-oversized-stream-diagnostics-2026-11-20
       - fix/youtube-player-client-defaults-2026-11-20
+      - feature/orbot-privacy-routing-2026-11-20
     paths:
       - .github/workflows/public-build.yml
   workflow_dispatch:
