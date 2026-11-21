@@ -275,6 +275,10 @@ struct UniversalMediaBrowserView: View {
     @State private var showDownloads = false
     @State private var previewStream: BrowserMediaPreview?
     @State private var showAllDetectedStreams = false
+    @State private var selectedPlayer: BrowserSelectedPlayer?
+    @State private var capturedCandidate: UniversalWebMediaCandidate?
+    @State private var captureIssue: String?
+    @State private var isResolvingCapturedClip = false
 
     private var activeBrowserDownloadCount: Int {
         library.browserDownloads.filter {
@@ -282,12 +286,11 @@ struct UniversalMediaBrowserView: View {
         }.count
     }
 
-    private var focusedCandidates: [UniversalWebMediaCandidate] {
-        UniversalMediaFocus.preferred(candidates)
-    }
-
     private var displayedCandidates: [UniversalWebMediaCandidate] {
-        showAllDetectedStreams ? candidates : focusedCandidates
+        // Never select the first or most recently requested HLS stream just
+        // because it happens to be near an active video in a feed.
+        if showAllDetectedStreams { return candidates }
+        return capturedCandidate.map { [$0] } ?? []
     }
 
     private var providerPage: (url: URL, provider: MediaProvider)? {
@@ -300,7 +303,7 @@ struct UniversalMediaBrowserView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 8) {
-                Text("Browse or sign in, play the video, then tap Find Video. Only media you select is saved.")
+                Text("Play the video or enter PiP, then tap Capture Playing. Preview that clip before saving.")
                     .font(.footnote).foregroundStyle(.secondary).padding(.horizontal)
                 HStack(spacing: 8) {
                     Image(systemName: "globe").foregroundStyle(.secondary)
@@ -332,7 +335,7 @@ struct UniversalMediaBrowserView: View {
                         .disabled(webView == nil)
                         .font(.footnote)
                      Spacer(minLength: 0)
-                    Button(isInspecting ? "Checking…" : "Find Video") { inspect() }
+                    Button(isInspecting ? "Checking…" : "Capture Playing") { inspect() }
                         .disabled(webView == nil || isInspecting)
                         .buttonStyle(.borderedProminent)
                 }.padding(.horizontal)
@@ -367,18 +370,19 @@ struct UniversalMediaBrowserView: View {
                                         pageURL: $currentPageURL,
                                         approvedAddressNavigation: $approvedAddressNavigation,
                                         statusText: $statusText, candidates: $candidates,
-                                        scanNonce: $scanNonce, blockAds: blockAds,
+                                        scanNonce: $scanNonce, selectedPlayer: $selectedPlayer,
+                                        blockAds: blockAds,
                                         stayOnSite: stayOnSite)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                if !candidates.isEmpty {
+                if !candidates.isEmpty || selectedPlayer != nil || isResolvingCapturedClip {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
-                            Text(showAllDetectedStreams ? "All detected streams" : "Playing video")
+                            Text(showAllDetectedStreams ? "All detected streams" : "Captured video")
                                 .font(.headline)
                             Spacer()
                             Button(showAllDetectedStreams
-                                ? "Focus"
-                                : "All streams (\(candidates.count))") {
+                                ? "Captured"
+                                : "Other streams (\(candidates.count))") {
                                 showAllDetectedStreams.toggle()
                             }
                             .font(.footnote.weight(.semibold))
@@ -387,11 +391,18 @@ struct UniversalMediaBrowserView: View {
                                 : "Show all \(candidates.count) detected streams")
                         }
                         .padding(.horizontal)
-                        if displayedCandidates.isEmpty {
-                            Text("Multiple streams were detected, but none could be reliably linked to the currently playing video. Open All streams to preview each, or navigate to that video's own page and tap Find Video again.")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal)
+                        if !showAllDetectedStreams && isResolvingCapturedClip {
+                            ProgressView("Finding this clip’s downloadable source…")
+                                .font(.footnote).padding(.horizontal)
+                        } else if !showAllDetectedStreams && displayedCandidates.isEmpty {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(captureIssue ?? "No single video player could be identified. Play one clip or enter PiP, then tap Capture Playing again.")
+                                    .font(.footnote).foregroundStyle(.secondary)
+                                if let clipURL = selectedPlayer?.clipPageURL {
+                                    Button("Open This Clip") { openSelectedClip(clipURL) }
+                                        .font(.footnote.weight(.semibold))
+                                }
+                            }.padding(.horizontal)
                         }
                         ScrollView {
                         LazyVStack(alignment: .leading, spacing: 8) {
@@ -399,7 +410,8 @@ struct UniversalMediaBrowserView: View {
                                 HStack(spacing: 8) {
                                     BrowserCandidateThumbnail(candidate: candidate)
                                     VStack(alignment: .leading, spacing: 3) {
-                                        Text(candidate.isPlaying ? "Playing now · linked" :
+                                        Text(!showAllDetectedStreams ? "Selected player · source found" :
+                                             candidate.isPlaying ? "Playing now · linked" :
                                              candidate.association == .possible ? "Possible playing video" :
                                              candidate.kind == .direct ? "Video candidate" :
                                              candidate.kind == .hls ? "HLS playlist" :
@@ -440,7 +452,7 @@ struct UniversalMediaBrowserView: View {
                             }
                         }.padding(.horizontal)
                         }
-                        .frame(maxHeight: showAllDetectedStreams ? 360 : 170)
+                        .frame(maxHeight: showAllDetectedStreams ? 360 : (displayedCandidates.isEmpty ? 1 : 170))
                     }
                 }
                 if let progress = library.socialDownloadProgress {
@@ -467,6 +479,17 @@ struct UniversalMediaBrowserView: View {
                     addressText = latest.absoluteString
                 }
             }
+            .onChange(of: selectedPlayer) { selected in
+                guard let selected else { return }
+                // Cross-origin frames may report at slightly different times.
+                // Don't resolve until the frame reporting has settled, and
+                // don't proceed if a second active player makes it ambiguous.
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 450_000_000)
+                    guard selectedPlayer == selected else { return }
+                    await resolveCapturedPlayer(selected)
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
             }
@@ -486,6 +509,10 @@ struct UniversalMediaBrowserView: View {
             addressFocused = false
             scanNonce = nil
             candidates = []
+            selectedPlayer = nil
+            capturedCandidate = nil
+            captureIssue = nil
+            isResolvingCapturedClip = false
             showAllDetectedStreams = false
             isInspecting = false
             approvedAddressNavigation = destination
@@ -528,8 +555,12 @@ struct UniversalMediaBrowserView: View {
         }
         guard let webView, let page = webView.url else { return }
         isInspecting = true
-        statusText = "Scanning this page and its embedded players…"
+        statusText = "Locating the specific player that is playing or in PiP…"
         candidates = []
+        selectedPlayer = nil
+        capturedCandidate = nil
+        captureIssue = nil
+        isResolvingCapturedClip = false
         showAllDetectedStreams = false
         let nonce = UUID().uuidString
         scanNonce = nonce
@@ -550,13 +581,63 @@ struct UniversalMediaBrowserView: View {
                     let topFrame = try UniversalWebMediaResolver.decode(json, expectedPageURL: page)
                     candidates = UniversalMediaFrameResult.merge(candidates, topFrame)
                     statusText = candidates.isEmpty
-                        ? "No media yet. Play the video, retry Find Video, or open a detected embedded player."
-                        : "Showing verified or possible playing-video matches first. Use All streams if no match is shown; preview unconfirmed HLS before saving."
+                        ? "No stream candidates yet. Play a clip and retry Capture Playing."
+                        : "Only the selected player's clip is shown by default; Other streams is an optional troubleshooting list."
                 } catch {
                     statusText = error.localizedDescription
                 }
             }
         }
+    }
+
+    /// The selected HTML5 element is the source of truth. RedGifs offers a
+    /// stronger mapping: selected video element -> feed tile ID -> clip API.
+    private func resolveCapturedPlayer(_ player: BrowserSelectedPlayer) async {
+        guard selectedPlayer == player else { return }
+        capturedCandidate = nil
+        captureIssue = nil
+        if let id = player.redGifsClipID {
+            isResolvingCapturedClip = true
+            do {
+                let candidate = try await RedGifsSelectedClipResolver().resolve(player)
+                guard selectedPlayer == player else { return }
+                capturedCandidate = candidate
+                captureIssue = nil
+                statusText = "Captured RedGifs clip \(id) from the actual player. Preview or Save; the browser stays open."
+            } catch {
+                guard selectedPlayer == player else { return }
+                capturedCandidate = player.directCandidate
+                captureIssue = player.directCandidate == nil
+                    ? "The player was identified as RedGifs clip \(id), but its source could not be retrieved: \(error.localizedDescription). Open This Clip to use the dedicated page."
+                    : nil
+                if captureIssue != nil { statusText = "Source lookup unavailable for the captured clip." }
+            }
+            isResolvingCapturedClip = false
+            return
+        }
+        capturedCandidate = player.directCandidate
+        captureIssue = player.directCandidate == nil
+            ? "This player is identified, but it exposes a blob/MSE stream rather than a downloadable URL. PiP identifies the player, not its HLS manifest. Use the individual clip page or Other streams for manual inspection."
+            : nil
+        if capturedCandidate != nil {
+            statusText = "Captured the exact \(player.isPiP ? "PiP" : "playing") video element. Preview or Save this stream."
+        }
+    }
+
+    private func openSelectedClip(_ url: URL) {
+        guard let webView, url.scheme?.lowercased() == "https",
+              URLSafetyPolicy.isPublic(url) else { return }
+        // A single tap replaces copying a clip URL to Notes; normal WebKit
+        // back navigation remains available for the original feed.
+        scanNonce = nil
+        candidates = []
+        selectedPlayer = nil
+        capturedCandidate = nil
+        captureIssue = nil
+        showAllDetectedStreams = false
+        statusText = "Opened the selected clip. Play it, then tap Capture Playing."
+        approvedAddressNavigation = url
+        webView.load(URLRequest(url: url))
     }
 
     private func saveHLS(_ candidate: UniversalWebMediaCandidate) {
