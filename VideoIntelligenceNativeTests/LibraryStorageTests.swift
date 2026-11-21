@@ -132,10 +132,16 @@ final class LibraryStorageTests: XCTestCase {
         XCTAssertEqual(report.repaired, 0)
         XCTAssertEqual(report.unresolved, 1)
         XCTAssertEqual(report.items[0].mediaRelativePath, reference)
-        XCTAssertThrowsError(try storage.URLFor(relativePath: reference))
+        do {
+            _ = try await storage.URLFor(relativePath: reference)
+            XCTFail("A missing package must not be rebound to a different file")
+        } catch StorageError.invalidRelativePath {
+            // Expected. Keep the index entry unchanged.
+        }
         // Index and transcript remain intact for future recovery.
         try await storage.saveIndex(MediaLibraryIndex(items: report.items))
-        XCTAssertEqual(try await storage.loadIndex().items[0].mediaRelativePath, reference)
+        let reloaded = try await storage.loadIndex()
+        XCTAssertEqual(reloaded.items[0].mediaRelativePath, reference)
     }
 
     func testOfflineHLSRelativeReferenceRejectsPathTraversal() async throws {
