@@ -54,7 +54,7 @@ enum UniversalMediaFrameResult {
                 association: raw.playing == true ? .player :
                     UniversalWebMediaCandidate.Association(rawValue: raw.association ?? "") ?? .unknown
             ))
-            if found.count == 12 { break }
+            if found.count == 24 { break }
         }
         return found
     }
@@ -83,7 +83,7 @@ enum UniversalMediaFrameResult {
             if first != second { return first < second }
             return $0.url.absoluteString < $1.url.absoluteString
         }
-        return Array(merged.prefix(12))
+        return Array(merged.prefix(24))
     }
 
     private static func rank(_ kind: UniversalWebMediaCandidate.Kind) -> Int {
