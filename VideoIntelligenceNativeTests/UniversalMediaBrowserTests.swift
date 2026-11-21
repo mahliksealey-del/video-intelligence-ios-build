@@ -84,6 +84,41 @@ final class UniversalMediaBrowserTests: XCTestCase {
         XCTAssertThrowsError(try UniversalWebMediaResolver.decode(spoof, expectedPageURL: page))
     }
 
+    func testPlayingHLSNowOffersOfflineDownloadWithoutPretendingItsMP4() {
+        let hls = UniversalWebMediaCandidate(
+            url: URL(string: "https://hls-cdn77.example.com/video/playlist.m3u8?signature=abc")!,
+            pageURL: URL(string: "https://website.example.com/watch/9")!,
+            title: "Playing video",
+            userAgent: nil,
+            kind: .hls,
+            isPlaying: true
+        )
+        XCTAssertTrue(HLSOfflineDownloadService.supports(hls))
+        XCTAssertEqual(MediaClassifier.classify(URL(fileURLWithPath: "/tmp/stream.movpkg")), .video)
+        // Native offline HLS packages are not direct MP4 video files.
+        XCTAssertThrowsError(try UniversalWebMediaResolver.resolved(hls))
+
+        let dash = UniversalWebMediaCandidate(
+            url: URL(string: "https://cdn.example.com/manifest.mpd")!,
+            pageURL: hls.pageURL,
+            title: hls.title,
+            userAgent: nil,
+            kind: .dash,
+            isPlaying: true
+        )
+        XCTAssertFalse(HLSOfflineDownloadService.supports(dash))
+
+        let spoofed = UniversalWebMediaCandidate(
+            url: URL(string: "https://127.0.0.1/private.m3u8")!,
+            pageURL: hls.pageURL,
+            title: hls.title,
+            userAgent: nil,
+            kind: .hls,
+            isPlaying: false
+        )
+        XCTAssertFalse(HLSOfflineDownloadService.supports(spoofed))
+    }
+
     func testHLSDetectionIsNotAdvertisedAsExportableMP4() throws {
         let candidate = UniversalWebMediaCandidate(
             url: URL(string: "https://cdn.example.net/master.m3u8")!,
