@@ -1,7 +1,7 @@
 name: Video Intelligence Public iOS Build
 
 on:
-  # Experiment: retained browser session, bounded media queue and preview metadata.
+  # Retest: corrected SwiftUI download count and FIFO browser queue.
   # One-off CI gate for this experimental branch. Only this workflow-file
   # change triggers a push build; ordinary source edits remain manual.
   push:
