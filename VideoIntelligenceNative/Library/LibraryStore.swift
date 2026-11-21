@@ -49,7 +49,8 @@ enum BrowserDownloadQueuePolicy {
     static func nextQueuedIndex(in jobs: [BrowserDownloadJob],
                                 activeCount: Int) -> Int? {
         guard activeCount < maxConcurrent else { return nil }
-        return jobs.firstIndex(where: { $0.status == .queued })
+        // Most recent jobs appear first in the UI; serve oldest queued job first.
+        return jobs.lastIndex(where: { $0.status == .queued })
     }
 }
 
