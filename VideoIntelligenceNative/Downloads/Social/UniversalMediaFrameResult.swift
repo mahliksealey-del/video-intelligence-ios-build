@@ -10,6 +10,15 @@ enum UniversalMediaFrameResult {
         let title: String?
         let userAgent: String?
         let candidates: [Candidate]
+        let selectedPlayer: SelectedPlayerPayload?
+    }
+
+    private struct SelectedPlayerPayload: Decodable {
+        let mediaURL: String?
+        let poster: String?
+        let redGifsClipID: String?
+        let isPiP: Bool?
+        let isPlaying: Bool?
     }
 
     private struct Candidate: Decodable {
@@ -57,6 +66,57 @@ enum UniversalMediaFrameResult {
             if found.count == 24 { break }
         }
         return found
+    }
+
+    /// Decode only from a WebKit-authenticated frame and a user-initiated scan.
+    /// Arbitrary video metadata in a resource entry is never a selected player.
+    static func decodeSelectedPlayer(_ json: String, frameURL: URL,
+                                     expectedNonce: String) throws -> BrowserSelectedPlayer? {
+        guard let payload = try? JSONDecoder().decode(Envelope.self, from: Data(json.utf8)),
+              payload.nonce == expectedNonce,
+              let page = URL(string: payload.pageURL),
+              page.scheme?.lowercased() == "https",
+              URLSafetyPolicy.isPublic(page),
+              page.user == nil, page.password == nil,
+              page.host?.lowercased() == frameURL.host?.lowercased() else {
+            throw SocialExtractionError.unsupported("Selected player did not match its WebKit frame.")
+        }
+        guard let selected = payload.selectedPlayer,
+              selected.isPiP == true || selected.isPlaying == true else { return nil }
+        let url = selected.mediaURL.flatMap {
+            guard $0.count < 8192 else { return URL?.none }
+            return URL(string: $0)
+        }.flatMap { url -> URL? in
+            guard url.scheme?.lowercased() == "https",
+                  url.user == nil, url.password == nil,
+                  URLSafetyPolicy.isPublic(url) else { return nil }
+            return url
+        }
+        let posterURL = selected.poster.flatMap {
+            guard $0.count < 8192 else { return URL?.none }
+            return URL(string: $0)
+        }.flatMap { url -> URL? in
+            guard url.scheme?.lowercased() == "https",
+                  url.user == nil, url.password == nil,
+                  URLSafetyPolicy.isPublic(url) else { return nil }
+            return url
+        }
+        let redGifsHost = page.host?.lowercased() == "redgifs.com" ||
+            page.host?.lowercased().hasSuffix(".redgifs.com") == true
+        let clipID = selected.redGifsClipID.flatMap {
+            redGifsHost && RedGifsSelectedClipResolver.validID($0) ? $0 : nil
+        }
+        // Unknown blob/MSE is acceptable as a player identity, but cannot be
+        // sent to the download service as a media URL.
+        let agent = payload.userAgent.flatMap {
+            $0.count < 512 && !$0.contains("\n") && !$0.contains("\r") ? $0 : nil
+        }
+        return BrowserSelectedPlayer(
+            frameURL: frameURL, pageURL: page, streamURL: url,
+            posterURL: posterURL, redGifsClipID: clipID,
+            isPiP: selected.isPiP == true, isPlaying: selected.isPlaying == true,
+            title: String((payload.title ?? "Currently playing video").prefix(100)),
+            userAgent: agent)
     }
 
     static func merge(_ previous: [UniversalWebMediaCandidate],
