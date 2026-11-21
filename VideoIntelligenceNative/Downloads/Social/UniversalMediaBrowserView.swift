@@ -335,7 +335,8 @@ struct UniversalMediaBrowserView: View {
                         .disabled(webView == nil)
                         .font(.footnote)
                      Spacer(minLength: 0)
-                    Button(isInspecting ? "Checking…" : "Capture Playing") { inspect() }
+                    Button(isInspecting ? "Checking…" : "Get Video") { inspect() }
+                        .accessibilityLabel("Capture currently playing or Picture in Picture video")
                         .disabled(webView == nil || isInspecting)
                         .buttonStyle(.borderedProminent)
                 }.padding(.horizontal)
