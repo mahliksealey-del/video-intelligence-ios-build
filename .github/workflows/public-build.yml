@@ -1,7 +1,7 @@
 name: Video Intelligence Public iOS Build
 
 on:
-  # Experimental source HLS VOD to MP4 via pinned native TS remuxer and Swift fMP4 segment writer.
+  # Verify corrected cookie policy and guarded native HLS VOD to MP4 remux for iPhone.
   # One-off CI gate for this experimental branch. Only this workflow-file
   # change triggers a push build; ordinary source edits remain manual.
   push:
