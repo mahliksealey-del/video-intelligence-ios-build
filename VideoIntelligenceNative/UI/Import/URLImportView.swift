@@ -143,7 +143,7 @@ struct URLImportView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showUniversalBrowser, onDismiss: {
+            .fullScreenCover(isPresented: $showUniversalBrowser, onDismiss: {
                 // Defer provider extraction until the browser sheet is fully
                 // dismissed; avoids racing the TikTok browser or format picker
                 // against another active SwiftUI sheet.
