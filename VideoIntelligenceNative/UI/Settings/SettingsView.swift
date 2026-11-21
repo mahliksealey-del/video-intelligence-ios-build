@@ -31,6 +31,19 @@ struct SettingsView: View {
                     Text("Only Video Intelligence's own regenerable preview cache is cleared. Offline HLS packages may be system-managed inside Library/Caches; this action never deletes those packages. Regular videos remain in Files → On My iPhone → Video Intelligence.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
+                Section("Offline HLS health") {
+                    LabeledContent("Available", value: "\(library.availableHLSCount)")
+                    LabeledContent("Unavailable", value: "\(library.unavailableHLSCount)")
+                    if library.recoveredHLSCount > 0 {
+                        Label("Reconnected \(library.recoveredHLSCount) legacy HLS file reference(s) after the app update.", systemImage: "checkmark.circle")
+                            .font(.footnote).foregroundStyle(.green)
+                    }
+                    Button("Recheck Saved HLS Files") {
+                        Task { await library.refreshHLSHealth() }
+                    }
+                    Text("Unavailable does not mean deleted by this app. It means the saved package cannot be found at its expected on-device location. Keep the item and any transcripts until you decide whether to redownload.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
                 Section("Diagnostics") {
                     Button("Export Diagnostics") { Task { shareURL = await library.modelManager.diagnosticsURL() } }
                     Text("The local diagnostic log records stage, time, error domain/code, underlying cause, and retry count. It excludes media, transcripts, cookies, and URLs.").font(.footnote).foregroundStyle(.secondary)
