@@ -90,12 +90,18 @@ final class LibraryStore: ObservableObject {
             let recovery = await storage.repairOfflineHLSReferences(index.items)
             // Only persist confirmed, non-destructive repairs. Missing media
             // records and transcripts stay in the index unchanged.
+            items = recovery.items.sorted { $0.importedAt > $1.importedAt }
             if recovery.repaired > 0 {
                 var migrated = index
                 migrated.items = recovery.items
-                try await storage.saveIndex(migrated)
+                do {
+                    try await storage.saveIndex(migrated)
+                } catch {
+                    // A metadata-write issue must never hide the user's
+                    // recovered library. It can be retried next launch.
+                    errorMessage = "Recovered HLS files were found, but the updated library index could not be saved: \(error.localizedDescription)"
+                }
             }
-            items = recovery.items.sorted { $0.importedAt > $1.importedAt }
             storageBytes = await storage.storageUsage()
             await modelManager.refresh()
         } catch { errorMessage = error.localizedDescription }
