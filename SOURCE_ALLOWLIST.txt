@@ -40,6 +40,7 @@ VideoIntelligenceNative/Transcription/AccuracyBenchmark.swift
 VideoIntelligenceNative/Transcription/WhisperKitTranscriptionService.swift
 VideoIntelligenceNative/UI/AudioImportView.swift
 VideoIntelligenceNative/UI/Import/URLImportView.swift
+VideoIntelligenceNative/UI/Import/TorRoutingView.swift
 VideoIntelligenceNative/UI/Library/LibraryView.swift
 VideoIntelligenceNative/UI/MediaReviewView.swift
 VideoIntelligenceNative/UI/Player/MediaPlayerView.swift
@@ -49,6 +50,7 @@ VideoIntelligenceNative/UI/Transcript/TranscriptReaderView.swift
 VideoIntelligenceNativeTests/Fixtures/transcript-record.json
 VideoIntelligenceNativeTests/LibraryStorageTests.swift
 VideoIntelligenceNativeTests/MediaImportTests.swift
+VideoIntelligenceNativeTests/TorRoutingTests.swift
 VideoIntelligenceNativeTests/Phase3ReliabilityTests.swift
 VideoIntelligenceNativeTests/SocialExtractionTests.swift
 VideoIntelligenceNativeTests/YouTubeRangeDownloaderTests.swift
