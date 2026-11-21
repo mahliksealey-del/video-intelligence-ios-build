@@ -21,11 +21,12 @@ struct BrowserDownloadJob: Identifiable, Sendable {
 
 enum BrowserDownloadRequest: Sendable {
     case hls(UniversalWebMediaCandidate)
+    case hlsMP4(UniversalWebMediaCandidate)
     case direct(ResolvedSocialMedia, pageURL: URL, mode: SocialDownloadMode)
 
     var mediaURL: URL {
         switch self {
-        case .hls(let candidate): return candidate.url
+        case .hls(let candidate), .hlsMP4(let candidate): return candidate.url
         case .direct(let media, _, _):
             switch media.kind {
             case .progressive(let track): return track.url
@@ -37,8 +38,19 @@ enum BrowserDownloadRequest: Sendable {
     var sourceTitle: String {
         switch self {
         case .hls(let candidate): return candidate.title + " (HLS Offline)"
+        case .hlsMP4(let candidate): return candidate.title + " (MP4)"
         case .direct(let media, _, _): return media.title
         }
+    }
+
+    var dedupeKey: String {
+        let prefix: String
+        switch self {
+        case .hls: prefix = "offline:"
+        case .hlsMP4: prefix = "mp4:"
+        case .direct: prefix = "direct:"
+        }
+        return prefix + mediaURL.absoluteString
     }
 }
 
@@ -284,6 +296,7 @@ final class LibraryStore: ObservableObject {
                     id: UUID(), title: candidate.title + " (HLS Offline)",
                     kind: .video, sourceFilename: packageURL.lastPathComponent,
                     sourceURL: candidate.pageURL.absoluteString,
+                    hlsPlaylistURL: candidate.url.absoluteString,
                     mediaRelativePath: reference, importedAt: Date(),
                     duration: duration, status: .ready, progress: 0)
                 items.insert(item, at: 0)
@@ -320,11 +333,21 @@ final class LibraryStore: ObservableObject {
         }
     }
 
+    /// Save an independent shareable MP4 from the exact selected HLS source.
+    @discardableResult
+    func queueBrowserHLSMP4(_ candidate: UniversalWebMediaCandidate) -> UUID? {
+        guard HLSMP4ConversionService.isSupportedSource(candidate) else {
+            errorMessage = "This is not a supported public HTTPS HLS video source."
+            return nil
+        }
+        return queueBrowserRequest(.hlsMP4(candidate))
+    }
+
     private func queueBrowserRequest(_ request: BrowserDownloadRequest) -> UUID? {
         // Prevent accidental duplicate taps while queued or downloading, not
         // intentional new downloads after a previous attempt finishes.
         if let existing = browserRequests.first(where: {
-            $0.value.mediaURL == request.mediaURL
+            $0.value.dedupeKey == request.dedupeKey
         }) {
             return existing.key
         }
@@ -400,6 +423,18 @@ final class LibraryStore: ObservableObject {
             }
         }
         switch request {
+        case .hlsMP4(let candidate):
+            let mp4 = try await HLSMP4ConversionService().convert(
+                candidate, progress: onProgress)
+            defer { try? FileManager.default.removeItem(at: mp4) }
+            try Task.checkCancellation()
+            guard let saved = await importFile(mp4,
+                sourceURL: candidate.pageURL.absoluteString,
+                title: candidate.title + " (MP4)") else {
+                throw HLSMP4Error.invalidMP4
+            }
+            return saved
+
         case .direct(let media, let pageURL, let mode):
             let result = try await SocialMediaDownloadService().download(
                 media, sourceURL: pageURL, mode: mode, progress: onProgress)
@@ -436,6 +471,7 @@ final class LibraryStore: ObservableObject {
                 id: id, title: candidate.title + " (HLS Offline)",
                 kind: .video, sourceFilename: packageURL.lastPathComponent,
                 sourceURL: candidate.pageURL.absoluteString,
+                hlsPlaylistURL: candidate.url.absoluteString,
                 mediaRelativePath: reference, importedAt: Date(),
                 duration: duration, status: .ready, progress: 0), at: 0)
             try await persist()
