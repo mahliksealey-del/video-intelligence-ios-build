@@ -48,6 +48,37 @@ final class LibraryStorageTests: XCTestCase {
         XCTAssertEqual(savedTranscript, transcript)
     }
 
+    func testSystemManagedHLSAssetIsReferencedWithoutCopyAndRemovedOnDelete() async throws {
+        let appleManaged = root.appendingPathComponent("AppleManaged", isDirectory: true)
+            .appendingPathComponent("offline.movpkg", isDirectory: true)
+        try FileManager.default.createDirectory(at: appleManaged, withIntermediateDirectories: true)
+        try Data([1, 2, 3]).write(to: appleManaged.appendingPathComponent("segment"))
+
+        let reference = try await storage.registerOfflineHLSAsset(at: appleManaged)
+        XCTAssertTrue(reference.hasPrefix("hlsasset:"))
+        let resolved = try await storage.URLFor(relativePath: reference)
+        XCTAssertEqual(resolved.standardizedFileURL, appleManaged.standardizedFileURL)
+        let documents = await storage.documentsURL
+        XCTAssertFalse(FileManager.default.fileExists(atPath:
+            documents.appendingPathComponent("Videos/offline.movpkg").path))
+
+        var item = fixtureItem()
+        item.mediaRelativePath = reference
+        try await storage.deleteMedia(for: item)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: appleManaged.path))
+    }
+
+    func testOfflineHLSReferenceRejectsArbitraryFileURLs() async throws {
+        let notHLS = root.appendingPathComponent("not-an-asset.mp4")
+        try Data([1]).write(to: notHLS)
+        do {
+            _ = try await storage.registerOfflineHLSAsset(at: notHLS)
+            XCTFail("Regular videos must not be registered as system-managed offline HLS")
+        } catch StorageError.invalidRelativePath {
+            // Expected.
+        }
+    }
+
     private func fixtureItem() -> MediaLibraryItem {
         MediaLibraryItem(id: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!, title: "Recording", kind: .audio, sourceFilename: "recording.m4a", mediaRelativePath: "Audio/recording.m4a", importedAt: Date(timeIntervalSince1970: 1_700_000_000), duration: 4, status: .ready, progress: 0)
     }

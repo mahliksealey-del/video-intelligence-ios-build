@@ -59,7 +59,33 @@ actor LibraryStorage {
         return "\(folder)/\(filename)"
     }
 
+    // Apple's AVAssetDownloadURLSession owns the offline .movpkg location.
+    // Store a persistent reference in the library index, never a copied package.
+    private static let offlineHLSPrefix = "hlsasset:"
+
+    func registerOfflineHLSAsset(at sourceURL: URL) throws -> String {
+        let location = sourceURL.standardizedFileURL
+        guard sourceURL.isFileURL,
+              location.pathExtension.lowercased() == "movpkg",
+              fileManager.fileExists(atPath: location.path) else {
+            throw StorageError.invalidRelativePath
+        }
+        return Self.offlineHLSPrefix + Data(location.absoluteString.utf8).base64EncodedString()
+    }
+
     func URLFor(relativePath: String) throws -> URL {
+        if relativePath.hasPrefix(Self.offlineHLSPrefix) {
+            let value = String(relativePath.dropFirst(Self.offlineHLSPrefix.count))
+            guard let decoded = Data(base64Encoded: value),
+                  let string = String(data: decoded, encoding: .utf8),
+                  let location = URL(string: string),
+                  location.isFileURL,
+                  location.pathExtension.lowercased() == "movpkg",
+                  fileManager.fileExists(atPath: location.path) else {
+                throw StorageError.invalidRelativePath
+            }
+            return location
+        }
         guard !relativePath.contains(".."), !relativePath.hasPrefix("/") else { throw StorageError.invalidRelativePath }
         return documentsURL.appendingPathComponent(relativePath)
     }

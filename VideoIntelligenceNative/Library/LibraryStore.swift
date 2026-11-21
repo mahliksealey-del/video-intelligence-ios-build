@@ -187,13 +187,24 @@ final class LibraryStore: ObservableObject {
                     Task { @MainActor in self.socialDownloadProgress = value }
                 }
                 try Task.checkCancellation()
-                let imported = await importFile(
-                    packageURL,
-                    sourceURL: candidate.pageURL.absoluteString,
-                    title: candidate.title + " (HLS Offline)")
-                if imported == nil && errorMessage == nil {
-                    errorMessage = "iOS saved the HLS stream, but the media library could not open its offline package."
+                // Apple explicitly forbids relocating the package returned
+                // by AVAssetDownloadURLSession. Verify playback in place,
+                // then persist its original URL as a library reference.
+                let offlineAsset = AVURLAsset(url: packageURL)
+                guard try await offlineAsset.load(.isPlayable) else {
+                    throw MediaImportError.unsupportedType
                 }
+                let duration = try await metadata.duration(of: packageURL)
+                try Task.checkCancellation()
+                let reference = try await storage.registerOfflineHLSAsset(at: packageURL)
+                let item = MediaLibraryItem(
+                    id: UUID(), title: candidate.title + " (HLS Offline)",
+                    kind: .video, sourceFilename: packageURL.lastPathComponent,
+                    sourceURL: candidate.pageURL.absoluteString,
+                    mediaRelativePath: reference, importedAt: Date(),
+                    duration: duration, status: .ready, progress: 0)
+                items.insert(item, at: 0)
+                try await persist()
             } catch {
                 if !Task.isCancelled && !(error is CancellationError)
                     && (error as? URLError)?.code != .cancelled {
