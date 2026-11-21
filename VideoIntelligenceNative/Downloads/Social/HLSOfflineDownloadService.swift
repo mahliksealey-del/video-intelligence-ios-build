@@ -77,10 +77,6 @@ final class HLSOfflineDownloadService: NSObject, AVAssetDownloadDelegate, @unche
         }, onCancel: {
             Task { @MainActor in self.task?.cancel() }
         })
-        // Do not import an unusable HLS package as a ready library item.
-        guard try await AVURLAsset(url: location).load(.isPlayable) else {
-            throw DownloadError.unsupportedPackage
-        }
         return location
     }
 
