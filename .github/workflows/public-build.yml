@@ -1,7 +1,7 @@
 name: Video Intelligence Public iOS Build
 
 on:
-  # Test: player-locked/PiP video capture, RedGifs clip IDs and single preview/save.
+  # Final test: normalized selected clip IDs and cancellation-safe playback capture.
   # One-off CI gate for this experimental branch. Only this workflow-file
   # change triggers a push build; ordinary source edits remain manual.
   push:
