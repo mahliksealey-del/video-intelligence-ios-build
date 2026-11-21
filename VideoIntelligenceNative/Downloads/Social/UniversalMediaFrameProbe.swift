@@ -44,13 +44,21 @@ enum UniversalMediaFrameProbe {
             found.push({url:url.href,
                         kind:kindHint === 'embed' ? 'embed' : classify(url),
                         playing:!!playing,
+                        association:playing && kindHint === 'player' ? 'player' : 'unknown',
                         poster:kindHint === 'player' && poster ? poster : null});
           } catch (_) {}
         };
 
         try {
-          for (const player of document.querySelectorAll('video')) {
-            const playing = !player.paused && player.readyState >= 2;
+          const players = [...document.querySelectorAll('video')];
+          const activePlayers = players.filter(player => {
+            const r = player.getBoundingClientRect();
+            return !player.paused && player.readyState >= 2 && r.width > 20 &&
+                   r.height > 20 && r.bottom > 0 && r.right > 0 &&
+                   r.top < innerHeight && r.left < innerWidth;
+          });
+          for (const player of players) {
+            const playing = activePlayers.includes(player);
             const poster = player.poster || null;
             add(player.currentSrc, playing, 'player', poster);
             add(player.src, playing, 'player', poster);
@@ -64,6 +72,12 @@ enum UniversalMediaFrameProbe {
           for (const resource of performance.getEntriesByType('resource').slice(-350)) {
             const mediaInitiator = ['video', 'audio', 'media'].includes(resource.initiatorType);
             add(resource.name, false, mediaInitiator ? 'player' : 'resource');
+          }
+          const hls = found.filter(item => item.kind === 'hls');
+          if (activePlayers.length === 1 && hls.length === 1 &&
+              !found.some(item => item.playing &&
+                       (item.kind === 'hls' || item.kind === 'direct'))) {
+            hls[0].association = 'possible';
           }
           // Offer a user-tapped Open Player fallback for opaque embeds.
           for (const frame of document.querySelectorAll('iframe[src]')) {

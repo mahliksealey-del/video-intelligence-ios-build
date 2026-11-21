@@ -17,6 +17,7 @@ enum UniversalMediaFrameResult {
         let kind: String
         let playing: Bool?
         let poster: String?
+        let association: String?
     }
 
     static func decode(_ json: String, frameURL: URL,
@@ -49,7 +50,9 @@ enum UniversalMediaFrameResult {
                 posterURL: raw.poster.flatMap { URL(string: $0) }.flatMap {
                     $0.scheme?.lowercased() == "https" && URLSafetyPolicy.isPublic($0)
                         && $0.user == nil && $0.password == nil ? $0 : nil
-                }
+                },
+                association: raw.playing == true ? .player :
+                    UniversalWebMediaCandidate.Association(rawValue: raw.association ?? "") ?? .unknown
             ))
             if found.count == 12 { break }
         }
@@ -65,7 +68,8 @@ enum UniversalMediaFrameResult {
                 let prior = merged[index]
                 if (candidate.isPlaying && !prior.isPlaying) ||
                    (candidate.kind == .direct && prior.kind == .embed) ||
-                   (prior.posterURL == nil && candidate.posterURL != nil) {
+                   (prior.posterURL == nil && candidate.posterURL != nil) ||
+                   (prior.association == .unknown && candidate.association != .unknown) {
                     merged[index] = candidate
                 }
             } else {

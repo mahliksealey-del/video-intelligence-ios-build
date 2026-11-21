@@ -16,8 +16,27 @@ struct UniversalWebMediaCandidate: Identifiable, Equatable, Sendable {
     let kind: Kind
     let isPlaying: Bool
     var posterURL: URL? = nil
+    // Only native HTML5 player URLs can be confirmed as currently playing.
+    // A single manifest in an active frame is a possible match, not proof.
+    enum Association: String, Sendable { case player, possible, unknown }
+    var association: Association = .unknown
 
     var id: String { url.absoluteString }
+}
+
+/// One-tap view for an explicitly associated playing video. We never choose
+/// a random manifest from multiple unrelated resource requests.
+enum UniversalMediaFocus {
+    static func preferred(_ candidates: [UniversalWebMediaCandidate]) -> [UniversalWebMediaCandidate] {
+        let playable = candidates.filter { $0.kind == .hls || $0.kind == .direct }
+        let playing = playable.filter { $0.isPlaying || $0.association == .player }
+        if !playing.isEmpty { return playing }
+        let possible = playable.filter { $0.association == .possible }
+        if possible.count == 1 { return possible }
+        // One valid candidate is easier to identify, but label it as
+        // unverified and offer Preview rather than claiming it is playing.
+        return playable.count == 1 ? playable : []
+    }
 }
 
 enum UniversalWebMediaResolver {
@@ -33,6 +52,7 @@ enum UniversalWebMediaResolver {
         let kind: String
         let playing: Bool?
         let poster: String?
+        let association: String?
     }
 
     static func decode(_ json: String, expectedPageURL: URL) throws -> [UniversalWebMediaCandidate] {
@@ -63,7 +83,9 @@ enum UniversalWebMediaResolver {
                 posterURL: raw.poster.flatMap { URL(string: $0) }.flatMap {
                     $0.scheme?.lowercased() == "https" && URLSafetyPolicy.isPublic($0)
                         && $0.user == nil && $0.password == nil ? $0 : nil
-                }
+                },
+                association: raw.playing == true ? .player :
+                    UniversalWebMediaCandidate.Association(rawValue: raw.association ?? "") ?? .unknown
             ))
             if candidates.count == 12 { break }
         }
@@ -125,11 +147,17 @@ enum UniversalWebMediaResolver {
           if (!extension && source !== 'player' && source !== 'meta') return;
           seen.add(value.href);
           found.push({url: value.href, kind: classify(value), playing: !!playing,
+                      association: playing && source === 'player' ? 'player' : 'unknown',
                       poster: source === 'player' && poster ? poster : null});
         } catch (_) {}
       };
+      const activePlayers = [...document.querySelectorAll('video')].filter(video => {
+        const r = video.getBoundingClientRect();
+        return !video.paused && video.readyState >= 2 && r.width > 20 && r.height > 20 &&
+               r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth;
+      });
       for (const video of document.querySelectorAll('video')) {
-        const playing = !video.paused && video.readyState >= 2;
+        const playing = activePlayers.includes(video);
         const poster = video.poster || null;
         add(video.currentSrc, playing, 'player', poster);
         add(video.src, playing, 'player', poster);
@@ -141,6 +169,14 @@ enum UniversalWebMediaResolver {
         const resources = performance.getEntriesByType('resource');
         for (const resource of resources.slice(-250)) add(resource.name, false, 'resource');
       } catch (_) {}
+      // Opaque blob/MSE players do not expose their playlist in currentSrc.
+      // Only label a manifest "possible" when exactly one is seen in a frame
+      // containing exactly one actively visible video; this is not a guarantee.
+      const hls = found.filter(item => item.kind === 'hls');
+      if (activePlayers.length === 1 && hls.length === 1 &&
+          !found.some(item => item.playing && (item.kind === 'hls' || item.kind === 'direct'))) {
+        hls[0].association = 'possible';
+      }
       return JSON.stringify({
         pageURL: location.href,
         title: String(document.title || 'Website video').slice(0, 100),
