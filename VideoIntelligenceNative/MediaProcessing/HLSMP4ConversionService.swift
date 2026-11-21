@@ -200,9 +200,9 @@ struct HLSMP4ConversionService {
         var current = candidate.url
         var selectedPlan: HLSMediaPlan?
         for _ in 0..<3 {
-            let playlist = try await fetchPlaylist(current, candidate: candidate,
-                                                   session: session)
-            switch try HLSPlaylistPlanner.parse(playlist, at: current) {
+            let (playlist, finalURL) = try await fetchPlaylist(
+                current, candidate: candidate, session: session)
+            switch try HLSPlaylistPlanner.parse(playlist, at: finalURL) {
             case .master(let next):
                 current = next
             case .media(let plan):
@@ -247,7 +247,7 @@ struct HLSMP4ConversionService {
     }
 
     private func fetchPlaylist(_ url: URL, candidate: UniversalWebMediaCandidate,
-                               session: URLSession) async throws -> String {
+                               session: URLSession) async throws -> (String, URL) {
         try HLSPlaylistPlanner.validate(url)
         var request = URLRequest(url: url)
         if let agent = candidate.userAgent, agent.count < 512,
@@ -263,7 +263,7 @@ struct HLSMP4ConversionService {
               let text = String(data: data, encoding: .utf8) else {
             throw HLSMP4Error.unreachableSource
         }
-        return text
+        return (text, actual)
     }
 
     private func writeFragmentedMP4(_ plan: HLSMediaPlan, destination: URL,
