@@ -274,11 +274,20 @@ struct UniversalMediaBrowserView: View {
     @State private var stayOnSite = false
     @State private var showDownloads = false
     @State private var previewStream: BrowserMediaPreview?
+    @State private var showAllDetectedStreams = false
 
     private var activeBrowserDownloadCount: Int {
         library.browserDownloads.filter {
             $0.status == .running || $0.status == .queued
         }.count
+    }
+
+    private var focusedCandidates: [UniversalWebMediaCandidate] {
+        UniversalMediaFocus.preferred(candidates)
+    }
+
+    private var displayedCandidates: [UniversalWebMediaCandidate] {
+        showAllDetectedStreams ? candidates : focusedCandidates
     }
 
     private var providerPage: (url: URL, provider: MediaProvider)? {
@@ -362,23 +371,45 @@ struct UniversalMediaBrowserView: View {
                                         stayOnSite: stayOnSite)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 if !candidates.isEmpty {
-                    ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text(showAllDetectedStreams ? "All detected streams" : "Playing video")
+                                .font(.headline)
+                            Spacer()
+                            Button(showAllDetectedStreams
+                                ? "Focus"
+                                : "All streams (\(candidates.count))") {
+                                showAllDetectedStreams.toggle()
+                            }
+                            .font(.footnote.weight(.semibold))
+                            .accessibilityLabel(showAllDetectedStreams
+                                ? "Focus on currently playing video"
+                                : "Show all \(candidates.count) detected streams")
+                        }
+                        .padding(.horizontal)
+                        if displayedCandidates.isEmpty {
+                            Text("Multiple streams were detected, but none could be reliably linked to the currently playing video. Open All streams to preview each, or navigate to that video's own page and tap Find Video again.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal)
+                        }
+                        ScrollView {
                         LazyVStack(alignment: .leading, spacing: 8) {
-                            Text("Detected media").font(.headline)
-                            ForEach(candidates) { candidate in
+                            ForEach(displayedCandidates) { candidate in
                                 HStack(spacing: 8) {
                                     BrowserCandidateThumbnail(candidate: candidate)
                                     VStack(alignment: .leading, spacing: 3) {
-                                        Text(candidate.isPlaying ? "Playing now" :
+                                        Text(candidate.isPlaying ? "Playing now · linked" :
+                                             candidate.association == .possible ? "Possible playing video" :
                                              candidate.kind == .direct ? "Video candidate" :
                                              candidate.kind == .hls ? "HLS playlist" :
                                              candidate.kind == .dash ? "DASH manifest" : "Embedded player")
                                             .font(.subheadline.weight(.semibold))
                                         Text(candidate.url.host ?? "Media")
                                             .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                                        if candidate.posterURL == nil,
-                                           candidate.kind == .hls || candidate.kind == .direct {
-                                            Text("Preview to identify")
+                                        if candidate.association != .player &&
+                                           (candidate.kind == .hls || candidate.kind == .direct) {
+                                            Text("Unconfirmed · preview before saving")
                                                 .font(.caption2).foregroundStyle(.secondary)
                                         }
                                     }
@@ -408,7 +439,9 @@ struct UniversalMediaBrowserView: View {
                                 Divider()
                             }
                         }.padding(.horizontal)
-                    }.frame(maxHeight: 240)
+                        }
+                        .frame(maxHeight: showAllDetectedStreams ? 360 : 170)
+                    }
                 }
                 if let progress = library.socialDownloadProgress {
                     HStack(spacing: 8) {
@@ -453,6 +486,7 @@ struct UniversalMediaBrowserView: View {
             addressFocused = false
             scanNonce = nil
             candidates = []
+            showAllDetectedStreams = false
             isInspecting = false
             approvedAddressNavigation = destination
 
@@ -496,6 +530,7 @@ struct UniversalMediaBrowserView: View {
         isInspecting = true
         statusText = "Scanning this page and its embedded players…"
         candidates = []
+        showAllDetectedStreams = false
         let nonce = UUID().uuidString
         scanNonce = nonce
         // The all-frame probe relays results from cross-origin iframe players.
@@ -516,7 +551,7 @@ struct UniversalMediaBrowserView: View {
                     candidates = UniversalMediaFrameResult.merge(candidates, topFrame)
                     statusText = candidates.isEmpty
                         ? "No media yet. Play the video, retry Find Video, or open a detected embedded player."
-                        : "Choose Save for direct video, Save Offline for supported HLS video-on-demand, or Open Player for embedded media. DASH and MP4 stream export are not yet available."
+                        : "Showing verified or possible playing-video matches first. Use All streams if no match is shown; preview unconfirmed HLS before saving."
                 } catch {
                     statusText = error.localizedDescription
                 }
