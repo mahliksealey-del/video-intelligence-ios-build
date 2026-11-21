@@ -58,6 +58,16 @@ Direct downloads reject unsafe local-address literals, excessive files, text res
 This native application includes Keraunos-derived GPLv3 components and is distributed under GPLv3. See `LICENSE-GPL-3.0.txt` and `THIRD_PARTY_NOTICES.md` for exact sources, revisions, hashes, and other upstream licenses. Model weights are not vendored.
 
 
+## Orbot integration: optional free Tor routing (2026-11-20)
+
+Video Intelligence adds **Get Media → Privacy routing → Orbot / Tor Routing**. It launches the separate, free Orbot for iOS through Guardian Project's **official universal links**: `https://orbot.app/rc/start` requests that Orbot start its Network Extension (subject to iOS user permission), `https://orbot.app/rc/show` opens Orbot for manual controls, and `https://orbot.app/download` provides its official installation destination. Orbot supports these public links in its upstream README and recommends universal links over a hijackable `orbot:` custom scheme. We do **not** copy Orbot code, embed or repackage a VPN engine, require extra NetworkExtension signing entitlements, select Tor exit geographies, or claim control of the external VPN.
+
+An explicit **Verify Tor routing** action sends a single ephemeral, non-cached `URLSession` HTTPS request to the Tor Project's `https://check.torproject.org/api/ip` endpoint and decodes its `IsTor` verdict and reported public IP. A positive response describes **that network request only**. Negative or unreadable responses are never shown as protected. No automatic checks, analytics, IP history, account data, or fetched media are sent to GitHub or saved as part of this feature. Returning from Orbot clears the old status, preventing an outdated success indicator.
+
+Orbot may route other iPhone applications too, can slow media downloads, and can cause YouTube and other video sites to reject requests. Users must stop or configure the connection in Orbot itself: the public URL API intentionally has no unauthenticated stop command. A verified Tor exit does **not** guarantee every subsequent browser/webview/Python download has the same path or that KYC/age verification can be omitted. Existing YouTube (user-verified working), TikTok, Instagram, UMR browser, and download/transcription code paths are unchanged. App installation and real Tor verification still require physical iPhone acceptance.
+
+Primary upstream reference: [guardianproject/orbot-apple README](https://github.com/guardianproject/orbot-apple/blob/main/README.md), [guardianproject/orbotkit](https://github.com/guardianproject/orbotkit) (reference only; not integrated as a binary dependency).
+
 ## YouTube-specific format and player-client repair (2026-11-20)
 
 The previous provider-repair build successfully compiled but **never demonstrated a real iPhone YouTube/Shorts download**. A new review found that Keraunos's pinned `keraunos_extract.py` forced the older YouTube player clients `tv`, `tv_embedded`, `android_vr` in **both** the format listing and resolution code. yt-dlp `2026.10.26` actually defaults to `tv_samsung`, `visionos`, `web` (or `visionos` if JS solving is unavailable), and makes that choice dynamically based on provider availability. We now remove the forced override at verified runtime preparation and use the official yt-dlp defaults, without altering Instagram or TikTok.
