@@ -1,5 +1,7 @@
+import AVFoundation
 import Foundation
 import SwiftUI
+import UIKit
 import WebKit
 
 /// Playback-first media discovery for user-opened ordinary websites.
@@ -234,6 +236,8 @@ struct UniversalMediaBrowserView: View {
     @State private var scanNonce: String?
     @AppStorage("VIWebsiteAdBlockingEnabled") private var blockAds = true
     @State private var stayOnSite = false
+    @State private var showDownloads = false
+    @State private var previewStream: BrowserMediaPreview?
 
     private var providerPage: (url: URL, provider: MediaProvider)? {
         guard let page = currentPageURL ?? webView?.url,
@@ -297,6 +301,19 @@ struct UniversalMediaBrowserView: View {
                     Toggle("Block Ads", isOn: $blockAds)
                     Toggle("Stay on Site", isOn: $stayOnSite)
                 }.font(.caption).padding(.horizontal)
+                HStack {
+                    Button { showDownloads = true } label: {
+                        Label("Downloads (\(library.browserDownloads.filter {
+                            $0.status == .running || $0.status == .queued
+                        }.count))", systemImage: "arrow.down.circle")
+                    }
+                    .font(.footnote.weight(.semibold))
+                    .accessibilityLabel("Open download center")
+                    Spacer()
+                    Text("Save videos without leaving this page")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+                .padding(.horizontal)
                 UniversalBrowserWebView(url: url, webView: $webView,
                                         pageURL: $currentPageURL,
                                         approvedAddressNavigation: $approvedAddressNavigation,
@@ -306,37 +323,52 @@ struct UniversalMediaBrowserView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 if !candidates.isEmpty {
                     ScrollView {
-                        VStack(alignment: .leading, spacing: 8) {
+                        LazyVStack(alignment: .leading, spacing: 8) {
                             Text("Detected media").font(.headline)
                             ForEach(candidates) { candidate in
-                                HStack {
+                                HStack(spacing: 8) {
+                                    BrowserCandidateThumbnail(candidate: candidate)
                                     VStack(alignment: .leading, spacing: 3) {
-                                        Text(candidate.isPlaying ? "Playing video" :
+                                        Text(candidate.isPlaying ? "Playing now" :
                                              candidate.kind == .direct ? "Video candidate" :
                                              candidate.kind == .hls ? "HLS playlist" :
                                              candidate.kind == .dash ? "DASH manifest" : "Embedded player")
                                             .font(.subheadline.weight(.semibold))
                                         Text(candidate.url.host ?? "Media")
                                             .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                        if candidate.posterURL == nil,
+                                           candidate.kind == .hls || candidate.kind == .direct {
+                                            Text("Preview to identify")
+                                                .font(.caption2).foregroundStyle(.secondary)
+                                        }
                                     }
-                                    Spacer()
-                                    if candidate.kind == .direct {
-                                        Button("Save") { save(candidate) }.buttonStyle(.borderedProminent)
-                                    } else if candidate.kind == .hls {
-                                        Button("Save Offline") { saveHLS(candidate) }
-                                            .buttonStyle(.borderedProminent)
-                                            .disabled(library.socialDownloadProgress != nil)
-                                    } else if candidate.kind == .embed {
-                                        Button("Open Player") { openEmbedded(candidate) }
-                                            .buttonStyle(.bordered)
-                                    } else {
-                                        Text("Stream detected").font(.caption).foregroundStyle(.secondary)
+                                    Spacer(minLength: 2)
+                                    VStack(spacing: 4) {
+                                        if candidate.kind == .direct {
+                                            Button("Save") { save(candidate) }
+                                                .buttonStyle(.borderedProminent)
+                                        } else if candidate.kind == .hls {
+                                            Button("Save Offline") { saveHLS(candidate) }
+                                                .buttonStyle(.borderedProminent)
+                                        } else if candidate.kind == .embed {
+                                            Button("Open Player") { openEmbedded(candidate) }
+                                                .buttonStyle(.bordered)
+                                        } else {
+                                            Text("Stream detected").font(.caption)
+                                        }
+                                        if candidate.kind == .hls || candidate.kind == .direct {
+                                            Button("Preview") {
+                                                previewStream = BrowserMediaPreview(candidate: candidate)
+                                            }
+                                            .font(.caption)
+                                        }
                                     }
+                                    .font(.footnote)
                                 }
                                 Divider()
                             }
                         }.padding(.horizontal)
-                    }.frame(maxHeight: 180)
+                    }.frame(maxHeight: 240)
                 }
                 if let progress = library.socialDownloadProgress {
                     HStack(spacing: 8) {
@@ -365,6 +397,12 @@ struct UniversalMediaBrowserView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
             }
+        }
+        .sheet(isPresented: $showDownloads) {
+            BrowserDownloadsSheet().environmentObject(library)
+        }
+        .sheet(item: $previewStream) { selection in
+            BrowserSourcePreviewSheet(candidate: selection.candidate)
         }
     }
 
@@ -451,8 +489,11 @@ struct UniversalMediaBrowserView: View {
             statusText = "This HLS playlist cannot be downloaded safely."
             return
         }
-        library.downloadHLS(candidate)
-        statusText = "Saving an offline HLS package. When finished, open it in your library. This is not an exportable MP4; live and protected streams may fail."
+        if library.queueBrowserDownload(candidate, mode: .video) != nil {
+            statusText = "HLS download queued. Keep browsing; use Downloads to check progress and review the saved video. This isn't an exportable MP4."
+        } else {
+            statusText = library.errorMessage ?? "Unable to queue this HLS stream."
+        }
     }
 
     private func useProviderDownloader() {
@@ -474,12 +515,147 @@ struct UniversalMediaBrowserView: View {
     }
 
     private func save(_ candidate: UniversalWebMediaCandidate) {
-        do {
-            let media = try UniversalWebMediaResolver.resolved(candidate)
-            onResolved(media, webView?.url ?? candidate.pageURL)
-            dismiss()
-        } catch {
-            statusText = error.localizedDescription
+        if library.queueBrowserDownload(candidate, mode: mode) != nil {
+            statusText = "Download queued. This page stays open—browse freely, and use Downloads to play or review the saved video."
+        } else {
+            statusText = library.errorMessage ?? "Unable to queue this video."
+        }
+    }
+}
+
+/// Browser previews stay inside a sheet; the underlying WKWebView and its scroll
+/// position are retained. No video is downloaded merely to show the preview.
+private struct BrowserMediaPreview: Identifiable {
+    let candidate: UniversalWebMediaCandidate
+    var id: String { candidate.id }
+}
+
+private struct BrowserSourcePreviewSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let candidate: UniversalWebMediaCandidate
+    @State private var seek: Double?
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Previewing the exact detected media URL, not another video from the feed.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    MediaPlayerView(url: candidate.url, kind: .video, seekRequest: $seek)
+                    Text("If the preview cannot play, the site may require a browser session or this HLS stream may be unsupported. Use the exact short link when the source cannot be identified.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }.padding()
+            }
+            .navigationTitle("Stream Preview")
+            .toolbar { ToolbarItem(placement: .cancellationAction) {
+                Button("Back to Website") { dismiss() }
+            } }
+        }
+    }
+}
+
+private struct BrowserCandidateThumbnail: View {
+    let candidate: UniversalWebMediaCandidate
+    @State private var generated: UIImage?
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8).fill(.thinMaterial)
+            if let poster = candidate.posterURL {
+                AsyncImage(url: poster) { phase in
+                    if case .success(let image) = phase {
+                        image.resizable().scaledToFill()
+                    } else {
+                        Image(systemName: "play.rectangle")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } else if let generated {
+                Image(uiImage: generated).resizable().scaledToFill()
+            } else {
+                Image(systemName: "play.rectangle")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: 62, height: 72).clipShape(RoundedRectangle(cornerRadius: 8))
+        .accessibilityLabel(candidate.posterURL != nil || generated != nil
+                            ? "Source video thumbnail" : "Thumbnail unavailable")
+        .task(id: candidate.id) {
+            generated = nil
+            guard candidate.posterURL == nil,
+                  candidate.kind == .direct || candidate.kind == .hls else { return }
+            // Apple's native generator supports regular file video and HLS
+            // streams that provide compatible I-frame renditions. If the
+            // source cannot supply a real frame, never invent a thumbnail.
+            let asset = AVURLAsset(url: candidate.url)
+            let generator = AVAssetImageGenerator(asset: asset)
+            generator.appliesPreferredTrackTransform = true
+            generator.maximumSize = CGSize(width: 124, height: 144)
+            if let result = try? await generator.image(
+                at: CMTime(seconds: 1, preferredTimescale: 600)),
+               !Task.isCancelled {
+                generated = UIImage(cgImage: result.image)
+            }
+        }
+    }
+}
+
+private struct BrowserDownloadsSheet: View {
+    @EnvironmentObject private var library: LibraryStore
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if library.browserDownloads.isEmpty {
+                    Text("No downloads yet. Return to Website Browser, tap Find Video and select Save.")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(library.browserDownloads) { job in
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(job.title).font(.headline).lineLimit(2)
+                        Text(job.host).font(.caption).foregroundStyle(.secondary)
+                        HStack(spacing: 12) {
+                            switch job.status {
+                            case .queued:
+                                Label("Queued", systemImage: "clock")
+                            case .running:
+                                ProgressView(value: job.progress).frame(maxWidth: .infinity)
+                                Text("\(Int(job.progress * 100))%").monospacedDigit()
+                            case .completed:
+                                Label("Saved", systemImage: "checkmark.circle.fill")
+                                    .foregroundStyle(.green)
+                            case .failed:
+                                Label("Failed", systemImage: "exclamationmark.triangle")
+                                    .foregroundStyle(.red)
+                            case .canceled:
+                                Text("Canceled").foregroundStyle(.secondary)
+                            }
+                            if job.status == .queued || job.status == .running {
+                                Spacer(minLength: 0)
+                                Button("Cancel", role: .destructive) {
+                                    library.cancelBrowserDownload(job.id)
+                                }.font(.caption)
+                            }
+                        }
+                        .font(.caption)
+                        if job.status == .completed, let itemID = job.savedItemID {
+                            NavigationLink {
+                                MediaReviewView(itemID: itemID)
+                            } label: {
+                                Label("Play / Review Saved Video", systemImage: "play.circle")
+                            }
+                        }
+                        if let error = job.errorMessage {
+                            Text(error).font(.caption).foregroundStyle(.red)
+                        }
+                    }.padding(.vertical, 5)
+                }
+            }
+            .navigationTitle("Downloads")
+            .toolbar { ToolbarItem(placement: .cancellationAction) {
+                Button("Back to Website") { dismiss() }
+            } }
         }
     }
 }
