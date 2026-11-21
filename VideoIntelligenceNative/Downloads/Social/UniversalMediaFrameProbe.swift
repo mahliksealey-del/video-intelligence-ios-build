@@ -15,6 +15,52 @@ enum UniversalMediaFrameProbe {
       Object.defineProperty(window, '__videoIntelligenceFrameProbeInstalled',
                             {value:true, configurable:false});
       const mediaPattern = /\.(mp4|m4v|mov|webm|mp3|m4a|aac|m3u8|mpd)$/i;
+      // Track actual HTML5 player PiP transitions, not unrelated HLS requests.
+      let pipVideo = null;
+      const isVideo = el => el && el.tagName === 'VIDEO';
+      document.addEventListener('enterpictureinpicture', event => {
+        if (isVideo(event.target)) pipVideo = event.target;
+      }, true);
+      document.addEventListener('leavepictureinpicture', event => {
+        if (pipVideo === event.target) pipVideo = null;
+      }, true);
+      document.addEventListener('webkitpresentationmodechanged', event => {
+        if (!isVideo(event.target)) return;
+        if (event.target.webkitPresentationMode === 'picture-in-picture') {
+          pipVideo = event.target;
+        } else if (pipVideo === event.target) {
+          pipVideo = null;
+        }
+      }, true);
+      const isVisible = video => {
+        const r = video.getBoundingClientRect();
+        return r.width > 20 && r.height > 20 && r.bottom > 0 &&
+               r.right > 0 && r.top < innerHeight && r.left < innerWidth;
+      };
+      const sourceClipID = video => {
+        try {
+          const host = location.hostname.toLowerCase();
+          if (!(host === 'redgifs.com' || host.endsWith('.redgifs.com'))) return null;
+          const tile = video.closest('[data-feed-item-id]');
+          const value = tile?.getAttribute('data-feed-item-id') ||
+            location.pathname.match(/^\/(?:ifr|watch)\/([A-Za-z0-9_-]+)/)?.[1] ||
+            video.closest('a[href*="/watch/"]')?.getAttribute('href')?.match(/\/watch\/([A-Za-z0-9_-]+)/)?.[1];
+          return typeof value === 'string' && /^[A-Za-z0-9_-]{3,90}$/.test(value)
+            ? value : null;
+        } catch (_) { return null; }
+      };
+      const currentPlayer = players => {
+        const pip = players.filter(video =>
+          video === document.pictureInPictureElement ||
+          video.webkitPresentationMode === 'picture-in-picture' ||
+          video === pipVideo);
+        if (pip.length === 1) return {video:pip[0], isPiP:true};
+        if (pip.length > 1) return null;
+        const visible = players.filter(video =>
+          !video.paused && video.readyState >= 2 && isVisible(video));
+        return visible.length === 1 ? {video:visible[0], isPiP:false} : null;
+      };
+
       const isVideoEmbed = (frame) => {
         const source = String(frame.getAttribute('src') || '').toLowerCase();
         const allow = String(frame.getAttribute('allow') || '').toLowerCase();
@@ -51,12 +97,8 @@ enum UniversalMediaFrameProbe {
 
         try {
           const players = [...document.querySelectorAll('video')];
-          const activePlayers = players.filter(player => {
-            const r = player.getBoundingClientRect();
-            return !player.paused && player.readyState >= 2 && r.width > 20 &&
-                   r.height > 20 && r.bottom > 0 && r.right > 0 &&
-                   r.top < innerHeight && r.left < innerWidth;
-          });
+          const activePlayers = players.filter(player =>
+            !player.paused && player.readyState >= 2 && isVisible(player));
           for (const player of players) {
             const playing = activePlayers.includes(player);
             const poster = player.poster || null;
@@ -85,9 +127,20 @@ enum UniversalMediaFrameProbe {
           }
         } catch (_) {}
 
+        // If several autoplay players are visible, do not guess which one.
+        const chosen = currentPlayer([...document.querySelectorAll('video')]);
+        const player = chosen?.video;
+        const selectedPlayer = player ? {
+          mediaURL: String(player.currentSrc || player.src || ''),
+          poster: player.poster || null,
+          redGifsClipID: sourceClipID(player),
+          isPiP: chosen.isPiP,
+          isPlaying: !player.paused && player.readyState >= 2
+        } : null;
         try {
           window.webkit.messageHandlers.viFrameMedia.postMessage(JSON.stringify({
             nonce:nonce,
+            selectedPlayer:selectedPlayer,
             pageURL:location.href,
             title:String(document.title || 'Embedded video').slice(0,100),
             userAgent:navigator.userAgent,
