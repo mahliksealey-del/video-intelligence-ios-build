@@ -440,6 +440,8 @@ int hls2mp4_convert(const hls2mp4_options *opts)
 {
     if (!opts || !opts->input_url || !opts->output_path)
         return HLS2MP4_ERR_IO;
+    if (hls_remux_cancel_token_is_requested(opts->cancel_token))
+        return HLS2MP4_ERR_CANCELED;
 
     int timeout = opts->timeout_ms > 0 ? opts->timeout_ms : DEFAULT_TIMEOUT_MS;
     int max_retries = opts->max_retries > 0 ? opts->max_retries : DEFAULT_MAX_RETRIES;
@@ -541,6 +543,15 @@ int hls2mp4_convert(const hls2mp4_options *opts)
 
         /* Process segments in order as their downloads complete */
         for (int i = batch_start; i < batch_end; i++) {
+            if (hls_remux_cancel_token_is_requested(opts->cancel_token)) {
+                http_prefetch_free(pf);
+                key_cache_free(key_cache);
+                muxer_close(muxer);
+                muxer_free(muxer);
+                m3u8_free(&playlist);
+                http_session_free(session);
+                return HLS2MP4_ERR_CANCELED;
+            }
             M3U8Segment *seg = &playlist.segments[i];
             log_msg(opts, "Processing segment %d/%d", i + 1, playlist.count);
 
@@ -679,6 +690,7 @@ const char *hls2mp4_error_string(int code)
         case HLS2MP4_ERR_DECRYPT:  return "Decryption error";
         case HLS2MP4_ERR_MUXER:    return "Muxer error";
         case HLS2MP4_ERR_IO:       return "I/O error";
+        case HLS2MP4_ERR_CANCELED: return "Canceled by user";
         default:                   return "Unknown error";
     }
 }
