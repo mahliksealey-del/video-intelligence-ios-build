@@ -155,6 +155,24 @@ final class LibraryStorageTests: XCTestCase {
         }
     }
 
+    func testClearCachesNeverDeletesSystemManagedOfflineHLS() async throws {
+        let systemMedia = root.appendingPathComponent(
+            "Caches/com.apple.avfoundation/retained.movpkg", isDirectory: true)
+        try FileManager.default.createDirectory(at: systemMedia, withIntermediateDirectories: true)
+        let segment = systemMedia.appendingPathComponent("segment")
+        try Data([8, 9]).write(to: segment)
+
+        let ownCache = root.appendingPathComponent("Caches/VideoIntelligenceRegenerable", isDirectory: true)
+        try FileManager.default.createDirectory(at: ownCache, withIntermediateDirectories: true)
+        try Data([1]).write(to: ownCache.appendingPathComponent("preview"))
+
+        try await storage.clearCaches()
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: systemMedia.path))
+        XCTAssertEqual(try Data(contentsOf: segment), Data([8, 9]))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ownCache.appendingPathComponent("preview").path))
+    }
+
     private func fixtureItem() -> MediaLibraryItem {
         MediaLibraryItem(id: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!, title: "Recording", kind: .audio, sourceFilename: "recording.m4a", mediaRelativePath: "Audio/recording.m4a", importedAt: Date(timeIntervalSince1970: 1_700_000_000), duration: 4, status: .ready, progress: 0)
     }
