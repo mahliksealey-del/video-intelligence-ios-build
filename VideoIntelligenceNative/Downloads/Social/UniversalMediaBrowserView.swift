@@ -239,6 +239,12 @@ struct UniversalMediaBrowserView: View {
     @State private var showDownloads = false
     @State private var previewStream: BrowserMediaPreview?
 
+    private var activeBrowserDownloadCount: Int {
+        library.browserDownloads.filter {
+            $0.status == .running || $0.status == .queued
+        }.count
+    }
+
     private var providerPage: (url: URL, provider: MediaProvider)? {
         guard let page = currentPageURL ?? webView?.url,
               (try? MediaURLValidator.validate(page.absoluteString)) != nil else { return nil }
@@ -303,9 +309,7 @@ struct UniversalMediaBrowserView: View {
                 }.font(.caption).padding(.horizontal)
                 HStack {
                     Button { showDownloads = true } label: {
-                        Label("Downloads (\(library.browserDownloads.filter {
-                            $0.status == .running || $0.status == .queued
-                        }.count))", systemImage: "arrow.down.circle")
+                        Label("Downloads (\(activeBrowserDownloadCount))", systemImage: "arrow.down.circle")
                     }
                     .font(.footnote.weight(.semibold))
                     .accessibilityLabel("Open download center")
