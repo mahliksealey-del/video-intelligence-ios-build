@@ -64,6 +64,9 @@ final class LibraryStore: ObservableObject {
     @Published var socialDownloadProgress: Double?
     @Published var socialDownloadStartedAt: Date?
     @Published private(set) var browserDownloads: [BrowserDownloadJob] = []
+    @Published private(set) var recoveredHLSCount = 0
+    @Published private(set) var availableHLSCount = 0
+    @Published private(set) var unavailableHLSCount = 0
 
     private var browserRequests: [UUID: BrowserDownloadRequest] = [:]
     private var browserTasks: [UUID: Task<Void, Never>] = [:]
@@ -91,6 +94,8 @@ final class LibraryStore: ObservableObject {
             // Only persist confirmed, non-destructive repairs. Missing media
             // records and transcripts stay in the index unchanged.
             items = recovery.items.sorted { $0.importedAt > $1.importedAt }
+            recoveredHLSCount = recovery.repaired
+            await refreshHLSHealth()
             if recovery.repaired > 0 {
                 var migrated = index
                 migrated.items = recovery.items
@@ -105,6 +110,13 @@ final class LibraryStore: ObservableObject {
             storageBytes = await storage.storageUsage()
             await modelManager.refresh()
         } catch { errorMessage = error.localizedDescription }
+    }
+
+    /// On-demand health refresh does not touch the library index or files.
+    func refreshHLSHealth() async {
+        let health = await storage.offlineHLSHealth(items)
+        availableHLSCount = health.available
+        unavailableHLSCount = health.unavailable
     }
 
     @discardableResult
