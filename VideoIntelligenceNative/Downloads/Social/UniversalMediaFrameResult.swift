@@ -83,24 +83,15 @@ enum UniversalMediaFrameResult {
         }
         guard let selected = payload.selectedPlayer,
               selected.isPiP == true || selected.isPlaying == true else { return nil }
-        let url = selected.mediaURL.flatMap {
-            guard $0.count < 8192 else { return URL?.none }
-            return URL(string: $0)
-        }.flatMap { url -> URL? in
-            guard url.scheme?.lowercased() == "https",
+        func validated(_ raw: String?) -> URL? {
+            guard let raw, raw.count < 8192, let url = URL(string: raw),
+                  url.scheme?.lowercased() == "https",
                   url.user == nil, url.password == nil,
                   URLSafetyPolicy.isPublic(url) else { return nil }
             return url
         }
-        let posterURL = selected.poster.flatMap {
-            guard $0.count < 8192 else { return URL?.none }
-            return URL(string: $0)
-        }.flatMap { url -> URL? in
-            guard url.scheme?.lowercased() == "https",
-                  url.user == nil, url.password == nil,
-                  URLSafetyPolicy.isPublic(url) else { return nil }
-            return url
-        }
+        let url = validated(selected.mediaURL)
+        let posterURL = validated(selected.poster)
         let redGifsHost = page.host?.lowercased() == "redgifs.com" ||
             page.host?.lowercased().hasSuffix(".redgifs.com") == true
         let clipID = selected.redGifsClipID.flatMap {
