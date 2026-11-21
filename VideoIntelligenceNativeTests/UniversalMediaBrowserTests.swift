@@ -128,6 +128,14 @@ final class UniversalMediaBrowserTests: XCTestCase {
         XCTAssertThrowsError(try UniversalWebMediaResolver.resolved(candidate))
     }
 
+    func testPlaybackAudioSessionUsesNoRecordingOnlyRoutingOptions() {
+        // Apple says AirPlay and A2DP route automatically under .playback.
+        // .allowAirPlay/.allowBluetoothA2DP can fail with OSStatus -50.
+        XCTAssertEqual(MediaPlaybackAudioPolicy.category, .playback)
+        XCTAssertEqual(MediaPlaybackAudioPolicy.mode, .moviePlayback)
+        XCTAssertTrue(MediaPlaybackAudioPolicy.options.isEmpty)
+    }
+
     func testBrowserQueueLimitsActiveTransfersToTwo() {
         func job(_ state: BrowserDownloadStatus) -> BrowserDownloadJob {
             BrowserDownloadJob(
