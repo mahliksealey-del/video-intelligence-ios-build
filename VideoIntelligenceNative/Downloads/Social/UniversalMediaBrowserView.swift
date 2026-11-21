@@ -824,6 +824,7 @@ private struct UniversalBrowserWebView: UIViewRepresentable {
     @Binding var statusText: String?
     @Binding var candidates: [UniversalWebMediaCandidate]
     @Binding var scanNonce: String?
+    @Binding var selectedPlayer: BrowserSelectedPlayer?
     let blockAds: Bool
     let stayOnSite: Bool
 
@@ -831,12 +832,14 @@ private struct UniversalBrowserWebView: UIViewRepresentable {
         Coordinator(statusText: $statusText, pageURL: $pageURL,
                     approvedAddressNavigation: $approvedAddressNavigation,
                     candidates: $candidates, scanNonce: $scanNonce,
+                    selectedPlayer: $selectedPlayer,
                     blockAds: blockAds, stayOnSite: stayOnSite)
     }
 
     func makeUIView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
+        configuration.allowsPictureInPictureMediaPlayback = true
         let userContent = configuration.userContentController
         userContent.addUserScript(WKUserScript(source: UniversalMediaFrameProbe.script,
                                                injectionTime: .atDocumentStart,
@@ -862,6 +865,9 @@ private struct UniversalBrowserWebView: UIViewRepresentable {
         private let approvedAddressNavigation: Binding<URL?>
         private let candidates: Binding<[UniversalWebMediaCandidate]>
         private let scanNonce: Binding<String?>
+        private let selectedPlayer: Binding<BrowserSelectedPlayer?>
+        private var selectedPlayersByFrame: [String: BrowserSelectedPlayer] = [:]
+        private var selectedPlayersNonce: String?
         private var blockerEnabled: Bool
         private var lockSiteEnabled: Bool
         private var blockerGeneration = 0
@@ -869,13 +875,15 @@ private struct UniversalBrowserWebView: UIViewRepresentable {
         init(statusText: Binding<String?>, pageURL: Binding<URL?>,
              approvedAddressNavigation: Binding<URL?>,
              candidates: Binding<[UniversalWebMediaCandidate]>,
-             scanNonce: Binding<String?>, blockAds: Bool,
+             scanNonce: Binding<String?>,
+             selectedPlayer: Binding<BrowserSelectedPlayer?>, blockAds: Bool,
              stayOnSite: Bool) {
             self.statusText = statusText
             self.pageURL = pageURL
             self.approvedAddressNavigation = approvedAddressNavigation
             self.candidates = candidates
             self.scanNonce = scanNonce
+            self.selectedPlayer = selectedPlayer
             self.blockerEnabled = blockAds
             self.lockSiteEnabled = stayOnSite
         }
@@ -935,8 +943,22 @@ private struct UniversalBrowserWebView: UIViewRepresentable {
                         json, frameURL: frameURL, expectedNonce: expectedNonce)
                     self.candidates.wrappedValue = UniversalMediaFrameResult.merge(
                         self.candidates.wrappedValue, result)
-                    if !self.candidates.wrappedValue.isEmpty {
-                        self.statusText.wrappedValue = "Found media from the page or embedded players. Select Save or Open Player."
+                    if self.selectedPlayersNonce != expectedNonce {
+                        self.selectedPlayersByFrame = [:]
+                        self.selectedPlayersNonce = expectedNonce
+                    }
+                    let found = try UniversalMediaFrameResult.decodeSelectedPlayer(
+                        json, frameURL: frameURL, expectedNonce: expectedNonce)
+                    if let found {
+                        self.selectedPlayersByFrame[frameURL.absoluteString] = found
+                    } else {
+                        self.selectedPlayersByFrame.removeValue(forKey: frameURL.absoluteString)
+                    }
+                    let selected = BrowserPlayerSelectionPolicy.single(
+                        Array(self.selectedPlayersByFrame.values))
+                    self.selectedPlayer.wrappedValue = selected
+                    if selected == nil, !self.candidates.wrappedValue.isEmpty {
+                        self.statusText.wrappedValue = "No unique playing/PiP player was identified. The diagnostic list is available under Other streams."
                     }
                 } catch { /* Ignore malformed third-party frame messages. */ }
             }
@@ -946,6 +968,9 @@ private struct UniversalBrowserWebView: UIViewRepresentable {
                      didStartProvisionalNavigation navigation: WKNavigation!) {
             scanNonce.wrappedValue = nil
             candidates.wrappedValue = []
+            selectedPlayer.wrappedValue = nil
+            selectedPlayersByFrame = [:]
+            selectedPlayersNonce = nil
         }
 
         func webView(_ webView: WKWebView,
