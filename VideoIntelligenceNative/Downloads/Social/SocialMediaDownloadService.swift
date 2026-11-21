@@ -291,10 +291,17 @@ actor SocialMediaDownloadService {
 
     private func validate(_ url: URL, expectedAudioOnly: Bool) async throws {
         let asset = AVURLAsset(url: url)
-        let audio = try await asset.loadTracks(withMediaType: .audio)
-        guard !audio.isEmpty else { throw MediaImportError.noAudioTrack }
-        if !expectedAudioOnly {
-            guard try await !asset.loadTracks(withMediaType: .video).isEmpty else { throw MediaDownloadError.unsupportedContent }
+        if expectedAudioOnly {
+            // Audio exports and transcriptions must actually include audio.
+            guard try await !asset.loadTracks(withMediaType: .audio).isEmpty else {
+                throw MediaImportError.noAudioTrack
+            }
+        } else {
+            // Some legitimate short clips are silent MP4s; video-only files
+            // are still valid downloadable and previewable media.
+            guard try await !asset.loadTracks(withMediaType: .video).isEmpty else {
+                throw MediaDownloadError.unsupportedContent
+            }
         }
         let duration = try await asset.load(.duration)
         guard duration.seconds.isFinite, duration.seconds > 0 else { throw MediaDownloadError.unsupportedContent }
