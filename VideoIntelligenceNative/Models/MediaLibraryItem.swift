@@ -19,6 +19,9 @@ struct MediaLibraryItem: Codable, Identifiable, Equatable, Sendable {
     let kind: MediaKind
     let sourceFilename: String
     var sourceURL: String? = nil
+    // Exact media playlist selected for an offline HLS asset; older items
+    // have no such field and continue to decode without it.
+    var hlsPlaylistURL: String? = nil
     var mediaRelativePath: String?
     var audioRelativePath: String?
     var transcriptRelativePath: String?
