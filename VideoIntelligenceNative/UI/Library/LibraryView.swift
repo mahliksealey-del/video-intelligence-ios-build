@@ -10,7 +10,6 @@ struct LibraryView: View {
     @State private var photoItem: PhotosPickerItem?
     @State private var search = ""
     @State private var filter: MediaFilter = .all
-    @State private var confirmDeleteAll = false
 
     enum MediaFilter: String, CaseIterable, Identifiable { case all = "All", video = "Videos", audio = "Audio", transcribed = "Transcripts"; var id: String { rawValue } }
 
@@ -35,7 +34,6 @@ struct LibraryView: View {
                         Button { showingFiles = true } label: { Label("Choose from Files", systemImage: "folder") }
                         PhotosPicker(selection: $photoItem, matching: .videos) { Label("Choose from Photos", systemImage: "photo.on.rectangle") }
                         Button { showingURL = true } label: { Label("Download Direct URL", systemImage: "link") }
-                        if !library.items.isEmpty { Divider(); Button("Delete All", role: .destructive) { confirmDeleteAll = true } }
                     } label: { Image(systemName: "plus.circle.fill") }.accessibilityLabel("Import media")
                 }
             }
@@ -48,7 +46,6 @@ struct LibraryView: View {
             .sheet(isPresented: $showingURL) { URLImportView() }
             .sheet(isPresented: $showingSettings) { SettingsView() }
             .alert("Import or Processing Error", isPresented: Binding(get: { library.errorMessage != nil }, set: { if !$0 { library.errorMessage = nil } })) { Button("OK") { library.errorMessage = nil } } message: { Text(library.errorMessage ?? "Unknown error") }
-            .confirmationDialog("Delete every library item and its transcript?", isPresented: $confirmDeleteAll, titleVisibility: .visible) { Button("Delete All", role: .destructive) { Task { await library.deleteAll() } }; Button("Cancel", role: .cancel) {} }
         }
         .tint(Color(red: 0.12, green: 0.48, blue: 0.29))
     }
