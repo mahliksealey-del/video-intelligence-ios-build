@@ -58,6 +58,20 @@ Direct downloads reject unsafe local-address literals, excessive files, text res
 This native application includes Keraunos-derived GPLv3 components and is distributed under GPLv3. See `LICENSE-GPL-3.0.txt` and `THIRD_PARTY_NOTICES.md` for exact sources, revisions, hashes, and other upstream licenses. Model weights are not vendored.
 
 
+## HLS library-path repair and export recovery (2026-11-21)
+
+**User-reported regression:** after installing an updated iPhone IPA, several existing media entries displayed "Source media was deleted" even though the app had not explicitly deleted them; HLS entries also lacked the previous "Export Media" action. Preserve all media index records, transcriptions and existing downloaded files; do not uninstall the app or delete unavailable entries during recovery.
+
+**Diagnosed root cause:** HLS Save Offline used `AVAssetDownloadURLSession` and stored an absolute `file://` path to Apple's system-managed `.movpkg` in the library index (`hlsasset:` + Base64). Apple TN2285 confirms that an iOS update can change the app-container UUID: files still present under the new container can therefore appear missing. Normal direct MP4 files have always been stored as relative `Documents/Videos/...` paths and are unaffected by this specific bug.
+
+**Repair:** on library load, inspect each legacy `hlsasset:` reference. If its original file still exists, use it. Otherwise, reconstruct the same `Library/.../*.movpkg` or `Documents/.../*.movpkg` suffix under the CURRENT app container. Only accept an exact existing package, never guess by filename, scan unrelated directories, download replacement media, move Apple's package, or delete any unresolved record. If recovered inside the sandbox, rewrite only that entry to a portable, container-relative `hlsrel:` reference. New offline HLS items use portable references from the start. If iOS has actually purged a package, no local code can recover the deleted segments; source metadata, transcript and the unresolved index entry remain in place for potential manual recovery/re-download. The Review UI now says media is "unavailable", not "deleted", when the stored path fails.
+
+**HLS export:** previous UI explicitly removed the media export action for `.movpkg` packages. The Review menu now offers **Try Export HLS as MP4** on currently accessible HLS packages. This uses only Apple's AVAssetExportSession, writes a separate temporary MP4 if iOS supports export of that particular unprotected asset, then opens the existing share sheet. It never renames, copies, relocates, or deletes the original Apple-managed asset. DRM and unsupported offline formats will be rejected with a clear error rather than an empty export; unprotected export is *not guaranteed* to work on every HLS package. Direct MP4 export is unchanged. Longer-term guaranteed MP4 requires a compatible direct MP4 source or a separately reviewed HLS media conversion implementation, not simply changing a file extension.
+
+**Tests:** verify simulated container UUID changes rebase old absolute paths to the same current Library-relative package, confirmed repairs persist, new HLS links are portable, absent packages preserve the original metadata, and encoded path traversal is rejected. Compiled XCTest targets are not proof of on-device file migration or HLS MP4 export compatibility; validate on real iPhone using pre-existing library items before freezing.
+
+Sources: https://developer.apple.com/library/archive/technotes/tn2285/ and https://developer.apple.com/documentation/avfoundation/avassetdownloaddelegate/urlsession(_:assetdownloadtask:didfinishdownloadingto:) .
+
 ## Player-locked Get Video / PiP capture experiment (2026-11-21)
 
 User feedback: the prior "Playing video" focus still showed unrelated HLS playlists and required guessing. This experimental branch **replaces the default list selection** with a user-initiated **Get Video** capture of a single actual HTML5 player. The existing download queue, review workflow, verified HLS offline package handling, browser session preservation and full-screen swipe resistance stay intact; the stable checkpoint remains unchanged.
