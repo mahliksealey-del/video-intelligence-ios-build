@@ -191,8 +191,6 @@ final class LibraryStore: ObservableObject {
 
     func deleteItem(_ item: MediaLibraryItem) async { try? await storage.deleteItemFiles(for: item); items.removeAll { $0.id == item.id }; try? await persist() }
 
-    func deleteAll() async { for item in items { try? await storage.deleteItemFiles(for: item) }; items = []; try? await persist() }
-
     func clearCaches() async { try? await storage.clearCaches(); storageBytes = await storage.storageUsage() }
 
     func releaseTranscriptionEngine() async { await enginePool?.unload(); enginePool = nil; engineProfile = nil }
