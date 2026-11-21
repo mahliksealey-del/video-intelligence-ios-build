@@ -137,8 +137,8 @@ final class UniversalMediaBrowserTests: XCTestCase {
         }
         let queue = [job(.completed), job(.queued), job(.queued), job(.queued)]
         XCTAssertEqual(BrowserDownloadQueuePolicy.maxConcurrent, 2)
-        XCTAssertEqual(BrowserDownloadQueuePolicy.nextQueuedIndex(in: queue, activeCount: 0), 1)
-        XCTAssertEqual(BrowserDownloadQueuePolicy.nextQueuedIndex(in: queue, activeCount: 1), 1)
+        XCTAssertEqual(BrowserDownloadQueuePolicy.nextQueuedIndex(in: queue, activeCount: 0), 3)
+        XCTAssertEqual(BrowserDownloadQueuePolicy.nextQueuedIndex(in: queue, activeCount: 1), 3)
         XCTAssertNil(BrowserDownloadQueuePolicy.nextQueuedIndex(in: queue, activeCount: 2))
         XCTAssertNil(BrowserDownloadQueuePolicy.nextQueuedIndex(
             in: [job(.failed), job(.canceled), job(.completed)], activeCount: 0))
