@@ -17,7 +17,8 @@ enum MediaImportError: LocalizedError, Equatable {
 }
 
 enum MediaClassifier {
-    static let videoExtensions = Set(["mp4", "mov", "m4v"])
+    // .movpkg is Apple's on-device offline HLS package, not an MP4 export.
+    static let videoExtensions = Set(["mp4", "mov", "m4v", "movpkg"])
     static let audioExtensions = Set(["m4a", "mp3", "wav", "aac", "caf", "aif", "aiff"])
 
     static func classify(_ url: URL) -> MediaKind? {
