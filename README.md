@@ -58,6 +58,22 @@ Direct downloads reject unsafe local-address literals, excessive files, text res
 This native application includes Keraunos-derived GPLv3 components and is distributed under GPLv3. See `LICENSE-GPL-3.0.txt` and `THIRD_PARTY_NOTICES.md` for exact sources, revisions, hashes, and other upstream licenses. Model weights are not vendored.
 
 
+## Player-locked Get Video / PiP capture experiment (2026-11-21)
+
+User feedback: the prior "Playing video" focus still showed unrelated HLS playlists and required guessing. This experimental branch **replaces the default list selection** with a user-initiated **Get Video** capture of a single actual HTML5 player. The existing download queue, review workflow, verified HLS offline package handling, browser session preservation and full-screen swipe resistance stay intact; the stable checkpoint remains unchanged.
+
+**Mechanics:** an at-document-start `WKUserScript` in every WebKit frame observes the HTML5 `<video>` elements and `enterpictureinpicture` / `webkitpresentationmodechanged` events. When the user taps Get Video, the script reports exactly one PiP element (preferred) or one actively playing visible element per frame, authenticated by WebKit's frameInfo and a random scan nonce. A cross-frame tie is treated as ambiguous, not resolved by choosing the first HLS resource. If the selected element exposes a real HTTPS video or HLS source, it is used directly. `blob:`/MSE is not itself downloadable, and native PiP alone does not reveal the underlying manifest.
+
+**RedGifs-specific player identity:** for RedGifs watch/iframe pages or a video within a DOM feed tile carrying `data-feed-item-id`, the script identifies the clip ID tied to that particular **selected player**. A user-triggered native resolver requests a public temporary API token and fetches metadata for **only that clip ID**, in the same way as yt-dlp's open-source RedGifs extractor (`yt_dlp/extractor/redgifs.py`). It prefers the clip's MP4 rendition when available, falling back to native offline HLS, and shows a single previewable source. No account cookies, credentials, user video history, analytics, third-party runtime library, arbitrary remote code, or background polling are introduced. The API can fail or change: the fallback is **Open This Clip**, which navigates directly to the player's identified clip page, not a guessed playlist. Returning via Back to the feed remains possible; preserving exact feed scroll position across this site navigation requires physical-device acceptance.
+
+**UI:** Get Video -> one player-specific preview/save row, or an explicit "not identifiable" result. Other streams is now optional troubleshooting, not the normal selection method. The app does not download automatically when PiP starts. User explicitly previews and chooses Save. In particular, entering PiP is not promised to work on every site's player, and a video behind an uninspectable native player cannot be magically mapped to its HLS.
+
+**Additional compatibility:** browser progressive video-only MP4s are accepted for saving even when no audio track exists; audio export or transcription still requires audio. MP4 downloads remain verified by AVFoundation video-track/duration checks, and Apple-managed HLS files are not relocated.
+
+**Device acceptance:** on the same RedGifs feed, play short A, Get Video, check correct thumbnail/preview and Save; repeat on short B without leaving the feed; enter PiP for short C and Get Video, check C (not A or B); simulate multiple autoplay video frames to verify no arbitrary match; confirm downloads, Review, scrolling and fast swipe behavior. If this branch can't map the real RedGifs DOM clip ID or PiP element, retain prior stable rather than replacing it.
+
+Open-source references: https://github.com/yt-dlp/yt-dlp/blob/master/yt_dlp/extractor/redgifs.py and https://github.com/irish8096/redgifs-bulk-downloader . Apple WebKit reference: https://developer.apple.com/documentation/webkit/wkwebviewconfiguration/allowspictureinpicturemediaplayback .
+
 ## Focused playing video and swipe-resistant browser (2026-11-21)
 
 Branch `feature/playing-video-focus-no-swipe-2026-11-21` preserves the last user-verified download center and keeps the stable branch unchanged.
