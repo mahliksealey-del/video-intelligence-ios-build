@@ -68,7 +68,9 @@ actor LibraryStorage {
     private static let offlineHLSRelativePrefix = "hlsrel:" // current portable form
 
     private var containerURL: URL {
-        documentsURL.deletingLastPathComponent().standardizedFileURL
+        // iOS may spell the same sandbox as /var or /private/var.
+        // Resolve those symlinks before comparing absolute paths.
+        documentsURL.deletingLastPathComponent().standardizedFileURL.resolvingSymlinksInPath()
     }
 
     private static func isSafeOfflineRelativePath(_ value: String) -> Bool {
@@ -84,7 +86,7 @@ actor LibraryStorage {
     private func pathWithinContainer(_ location: URL) -> String? {
         guard location.isFileURL else { return nil }
         let root = containerURL.path
-        let path = location.standardizedFileURL.path
+        let path = location.standardizedFileURL.resolvingSymlinksInPath().path
         guard path.hasPrefix(root + "/") else { return nil }
         let relative = String(path.dropFirst(root.count + 1))
         return Self.isSafeOfflineRelativePath(relative) ? relative : nil
