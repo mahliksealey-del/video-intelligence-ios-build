@@ -58,6 +58,10 @@ Direct downloads reject unsafe local-address literals, excessive files, text res
 This native application includes Keraunos-derived GPLv3 components and is distributed under GPLv3. See `LICENSE-GPL-3.0.txt` and `THIRD_PARTY_NOTICES.md` for exact sources, revisions, hashes, and other upstream licenses. Model weights are not vendored.
 
 
+## Library safety: remove bulk Delete All control (2026-11-20)
+
+The library's Import (+) menu no longer exposes **Delete All**, and the corresponding confirmation and library-wide bulk deletion method have been removed. The single-item **Review → More → Delete Entire Item** route (with its confirmation) remains available, as does **Delete Media Only**. The public CI source audit explicitly rejects reintroduction of the former bulk-delete label or handler in the library UI/store. Existing media and transcripts are not altered by this interface update.
+
 ## Orbot integration: optional free Tor routing (2026-11-20)
 
 Video Intelligence adds **Get Media → Privacy routing → Orbot / Tor Routing**. It launches the separate, free Orbot for iOS through Guardian Project's **official universal links**: `https://orbot.app/rc/start` requests that Orbot start its Network Extension (subject to iOS user permission), `https://orbot.app/rc/show` opens Orbot for manual controls, and `https://orbot.app/download` provides its official installation destination. Orbot supports these public links in its upstream README and recommends universal links over a hijackable `orbot:` custom scheme. We do **not** copy Orbot code, embed or repackage a VPN engine, require extra NetworkExtension signing entitlements, select Tor exit geographies, or claim control of the external VPN.
