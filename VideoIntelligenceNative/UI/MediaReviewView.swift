@@ -68,7 +68,13 @@ struct MediaReviewView: View {
                     ForEach(TranscriptExportFormat.allCases) { format in Button("Export \(format.rawValue.uppercased())") { export(format, item: item) } }
                 }
                 if item.mediaRelativePath != nil {
-                    Button("Export Media") { exportMedia(item) }
+                    if item.sourceFilename.lowercased().hasSuffix(".movpkg") {
+                        Text("Apple offline HLS package · playable in this app; MP4/Photos export is not available yet.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Button("Export Media") { exportMedia(item) }
+                    }
                     Button("Delete Media Only", role: .destructive) { Task { await library.deleteMedia(item); await reload() } }
                 }
                 Button("Delete Entire Item", role: .destructive) { confirmDelete = true }
