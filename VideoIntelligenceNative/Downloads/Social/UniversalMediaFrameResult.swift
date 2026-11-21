@@ -16,6 +16,7 @@ enum UniversalMediaFrameResult {
         let url: String
         let kind: String
         let playing: Bool?
+        let poster: String?
     }
 
     static func decode(_ json: String, frameURL: URL,
@@ -44,7 +45,11 @@ enum UniversalMediaFrameResult {
                   !found.contains(where: { $0.url == media }) else { continue }
             found.append(UniversalWebMediaCandidate(
                 url: media, pageURL: page, title: name,
-                userAgent: agent, kind: kind, isPlaying: raw.playing ?? false
+                userAgent: agent, kind: kind, isPlaying: raw.playing ?? false,
+                posterURL: raw.poster.flatMap { URL(string: $0) }.flatMap {
+                    $0.scheme?.lowercased() == "https" && URLSafetyPolicy.isPublic($0)
+                        && $0.user == nil && $0.password == nil ? $0 : nil
+                }
             ))
             if found.count == 12 { break }
         }
@@ -59,7 +64,8 @@ enum UniversalMediaFrameResult {
                 // Prefer the most specific detection and active playback.
                 let prior = merged[index]
                 if (candidate.isPlaying && !prior.isPlaying) ||
-                   (candidate.kind == .direct && prior.kind == .embed) {
+                   (candidate.kind == .direct && prior.kind == .embed) ||
+                   (prior.posterURL == nil && candidate.posterURL != nil) {
                     merged[index] = candidate
                 }
             } else {

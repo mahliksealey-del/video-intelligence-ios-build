@@ -31,7 +31,7 @@ enum UniversalMediaFrameProbe {
           return path.endsWith('.m3u8') ? 'hls'
                : path.endsWith('.mpd') ? 'dash' : 'direct';
         };
-        const add = (raw, playing, kindHint) => {
+        const add = (raw, playing, kindHint, poster) => {
           try {
             if (!raw || typeof raw !== 'string' || raw.length > 8192) return;
             const url = new URL(raw, document.baseURI);
@@ -43,16 +43,18 @@ enum UniversalMediaFrameProbe {
             seen.add(url.href);
             found.push({url:url.href,
                         kind:kindHint === 'embed' ? 'embed' : classify(url),
-                        playing:!!playing});
+                        playing:!!playing,
+                        poster:kindHint === 'player' && poster ? poster : null});
           } catch (_) {}
         };
 
         try {
           for (const player of document.querySelectorAll('video')) {
             const playing = !player.paused && player.readyState >= 2;
-            add(player.currentSrc, playing, 'player');
-            add(player.src, playing, 'player');
-            player.querySelectorAll('source[src]').forEach(src => add(src.src, playing, 'player'));
+            const poster = player.poster || null;
+            add(player.currentSrc, playing, 'player', poster);
+            add(player.src, playing, 'player', poster);
+            player.querySelectorAll('source[src]').forEach(src => add(src.src, playing, 'player', poster));
           }
           // Unlike the main-frame scanner, this sees metadata belonging to the
           // video HOST's own iframe origin.

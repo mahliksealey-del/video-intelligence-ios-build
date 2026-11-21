@@ -13,6 +13,7 @@ struct UniversalWebMediaCandidate: Identifiable, Equatable, Sendable {
     let userAgent: String?
     let kind: Kind
     let isPlaying: Bool
+    var posterURL: URL? = nil
 
     var id: String { url.absoluteString }
 }
@@ -29,6 +30,7 @@ enum UniversalWebMediaResolver {
         let url: String
         let kind: String
         let playing: Bool?
+        let poster: String?
     }
 
     static func decode(_ json: String, expectedPageURL: URL) throws -> [UniversalWebMediaCandidate] {
@@ -55,7 +57,11 @@ enum UniversalWebMediaResolver {
                   !candidates.contains(where: { $0.url == media }) else { continue }
             candidates.append(UniversalWebMediaCandidate(
                 url: media, pageURL: pageURL, title: name,
-                userAgent: agent, kind: kind, isPlaying: raw.playing == true
+                userAgent: agent, kind: kind, isPlaying: raw.playing == true,
+                posterURL: raw.poster.flatMap { URL(string: $0) }.flatMap {
+                    $0.scheme?.lowercased() == "https" && URLSafetyPolicy.isPublic($0)
+                        && $0.user == nil && $0.password == nil ? $0 : nil
+                }
             ))
             if candidates.count == 12 { break }
         }
@@ -107,7 +113,7 @@ enum UniversalWebMediaResolver {
         if (path.endsWith('.mpd')) return 'dash';
         return 'direct';
       };
-      const add = (raw, playing, source) => {
+      const add = (raw, playing, source, poster) => {
         try {
           if (!raw || typeof raw !== 'string') return;
           const value = new URL(raw, document.baseURI);
@@ -116,14 +122,16 @@ enum UniversalWebMediaResolver {
           const extension = /\.(mp4|m4v|mov|webm|m3u8|mpd)$/.test(path);
           if (!extension && source !== 'player' && source !== 'meta') return;
           seen.add(value.href);
-          found.push({url: value.href, kind: classify(value), playing: !!playing});
+          found.push({url: value.href, kind: classify(value), playing: !!playing,
+                      poster: source === 'player' && poster ? poster : null});
         } catch (_) {}
       };
       for (const video of document.querySelectorAll('video')) {
         const playing = !video.paused && video.readyState >= 2;
-        add(video.currentSrc, playing, 'player');
-        add(video.src, playing, 'player');
-        video.querySelectorAll('source[src]').forEach(s => add(s.src, playing, 'player'));
+        const poster = video.poster || null;
+        add(video.currentSrc, playing, 'player', poster);
+        add(video.src, playing, 'player', poster);
+        video.querySelectorAll('source[src]').forEach(s => add(s.src, playing, 'player', poster));
       }
       const meta = document.querySelector('meta[property="og:video"], meta[property="og:video:url"], meta[name="twitter:player:stream"]');
       if (meta) add(meta.content, false, 'meta');
