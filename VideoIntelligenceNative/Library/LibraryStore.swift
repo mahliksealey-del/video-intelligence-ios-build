@@ -175,6 +175,36 @@ final class LibraryStore: ObservableObject {
         }
     }
 
+    /// HLS Video-on-Demand streams save as an Apple offline .movpkg package.
+    /// This is not an MP4 conversion and cannot promise export to Photos.
+    func downloadHLS(_ candidate: UniversalWebMediaCandidate) {
+        operation?.cancel()
+        socialDownloadProgress = 0
+        socialDownloadStartedAt = Date()
+        operation = Task {
+            do {
+                let packageURL = try await HLSOfflineDownloadService().download(candidate) { value in
+                    Task { @MainActor in self.socialDownloadProgress = value }
+                }
+                try Task.checkCancellation()
+                let imported = await importFile(
+                    packageURL,
+                    sourceURL: candidate.pageURL.absoluteString,
+                    title: candidate.title + " (HLS Offline)")
+                if imported == nil && errorMessage == nil {
+                    errorMessage = "iOS saved the HLS stream, but the media library could not open its offline package."
+                }
+            } catch {
+                if !Task.isCancelled && !(error is CancellationError)
+                    && (error as? URLError)?.code != .cancelled {
+                    errorMessage = "HLS offline download failed: \(error.localizedDescription)"
+                }
+            }
+            socialDownloadProgress = nil
+            socialDownloadStartedAt = nil
+        }
+    }
+
     func transcript(for item: MediaLibraryItem) async throws -> TranscriptRecord {
         guard let path = item.transcriptRelativePath else { throw CocoaError(.fileNoSuchFile) }
         return try await storage.loadTranscript(relativePath: path)
