@@ -58,6 +58,20 @@ Direct downloads reject unsafe local-address literals, excessive files, text res
 This native application includes Keraunos-derived GPLv3 components and is distributed under GPLv3. See `LICENSE-GPL-3.0.txt` and `THIRD_PARTY_NOTICES.md` for exact sources, revisions, hashes, and other upstream licenses. Model weights are not vendored.
 
 
+## HLS playback and export: physical-device follow-up (2026-11-21)
+
+**Device result:** older offline HLS library items are visible again, but an MP4 conversion attempt reported Apple's "Operation Stopped" error, and media playback displayed "Audio output could not be activated … OSStatus error -50." File-path recovery is not proof of successful playable/exportable content.
+
+**Audio bug:** MediaPlayerController.configureAudioSession() incorrectly passed allowAirPlay and allowBluetoothA2DP explicitly with AVAudioSession playback/moviePlayback. Apple restricts explicit allowAirPlay to playAndRecord and automatically routes A2DP on playback. On iOS, this invalid combination can fail with OSStatus -50. The corrected player uses playback/moviePlayback with an empty category-options set. Confirm with physical-device playback tests; do not assume all old HLS content is playable merely because the file exists.
+
+**HLS export scope:** direct MP4 export in earlier releases simply copied an already existing file into a shareable location. AVAssetDownloadURLSession instead saves an Apple-managed movpkg HLS offline package. AVAssetExportSession cannot promise MP4 output from such packages; an export can start and then fail. The Review menu now says "Try Convert Offline HLS to MP4", explains a failed attempt, preserves the offline asset, and adds user-initiated "Copy Original Page Link" to use Get Video and obtain direct MP4 from the source when available. No DRM bypass or claim of universal conversion.
+
+**Open-source assessment:** FFmpeg can remux compatible unprotected, still-accessible original HLS VOD playlists to MP4 without re-encoding (ffmpeg -i source.m3u8 -c copy output.mp4). This requires the actual playlist, accessible segments and compatible codecs; it does not guarantee conversion of old Apple-managed movpkg storage or expired/protected streams. FFmpegKitNext (arthenica/ffmpeg-kit-next) is the actively maintained iOS-ready successor of archived FFmpegKit, but currently requires pinned source builds/xcframework packaging and dependency/license/binary-size review. Avoid integrating a full converter just to solve an audio-session error. MP3 encoding would be a separate feature; native M4A/AAC export already exists.
+
+**Device acceptance:** test old HLS playback after audio fix, ordinary MP4 playback and Export Media, unchanged Get Video/PiP and Download Center, clear HLS conversion failure and copy-source fallback. Native CI compilation is not proof of a working HLS MP4 conversion.
+
+References: https://developer.apple.com/documentation/avfaudio/avaudiosession/categoryoptions-swift.struct/allowairplay ; https://developer.apple.com/documentation/avfaudio/avaudiosession/categoryoptions-swift.struct/allowbluetootha2dp ; https://github.com/arthenica/ffmpeg-kit-next ; https://ffmpeg.org/ffmpeg.html .
+
 ## HLS library-path repair and export recovery (2026-11-21)
 
 **User-reported regression:** after installing an updated iPhone IPA, several existing media entries displayed "Source media was deleted" even though the app had not explicitly deleted them; HLS entries also lacked the previous "Export Media" action. Preserve all media index records, transcriptions and existing downloaded files; do not uninstall the app or delete unavailable entries during recovery.
