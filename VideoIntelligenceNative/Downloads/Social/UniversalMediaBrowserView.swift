@@ -206,6 +206,7 @@ enum UniversalBrowserAddress {
 /// Foreground browser allows ordinary website navigation and user-owned sign-in.
 /// Only a user-selected direct video can be handed to the library downloader.
 struct UniversalMediaBrowserView: View {
+    @EnvironmentObject private var library: LibraryStore
     let url: URL
     let mode: SocialDownloadMode
     let onResolved: (ResolvedSocialMedia, URL) -> Void
@@ -313,6 +314,10 @@ struct UniversalMediaBrowserView: View {
                                     Spacer()
                                     if candidate.kind == .direct {
                                         Button("Save") { save(candidate) }.buttonStyle(.borderedProminent)
+                                    } else if candidate.kind == .hls {
+                                        Button("Save Offline") { saveHLS(candidate) }
+                                            .buttonStyle(.borderedProminent)
+                                            .disabled(library.socialDownloadProgress != nil)
                                     } else if candidate.kind == .embed {
                                         Button("Open Player") { openEmbedded(candidate) }
                                             .buttonStyle(.bordered)
@@ -324,6 +329,16 @@ struct UniversalMediaBrowserView: View {
                             }
                         }.padding(.horizontal)
                     }.frame(maxHeight: 180)
+                }
+                if let progress = library.socialDownloadProgress {
+                    HStack(spacing: 8) {
+                        ProgressView(value: progress)
+                        Text("\(Int(progress * 100))%")
+                            .font(.caption.monospacedDigit())
+                        Button("Cancel") { library.cancelOperation() }
+                            .font(.caption)
+                    }
+                    .padding(.horizontal)
                 }
                 if let statusText {
                     Text(statusText).font(.footnote).foregroundStyle(.secondary).padding(.horizontal)
@@ -415,12 +430,21 @@ struct UniversalMediaBrowserView: View {
                     candidates = UniversalMediaFrameResult.merge(candidates, topFrame)
                     statusText = candidates.isEmpty
                         ? "No media yet. Play the video, retry Find Video, or open a detected embedded player."
-                        : "Choose Save for a detected direct video; Open Player for an embedded player. HLS/DASH export is not yet enabled."
+                        : "Choose Save for direct video, Save Offline for supported HLS video-on-demand, or Open Player for embedded media. DASH and MP4 stream export are not yet available."
                 } catch {
                     statusText = error.localizedDescription
                 }
             }
         }
+    }
+
+    private func saveHLS(_ candidate: UniversalWebMediaCandidate) {
+        guard HLSOfflineDownloadService.supports(candidate) else {
+            statusText = "This HLS playlist cannot be downloaded safely."
+            return
+        }
+        library.downloadHLS(candidate)
+        statusText = "Saving an offline HLS package. When finished, open it in your library. This is not an exportable MP4; live and protected streams may fail."
     }
 
     private func useProviderDownloader() {
