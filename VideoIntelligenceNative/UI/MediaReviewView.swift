@@ -1,5 +1,6 @@
 import AVFoundation
 import SwiftUI
+import UIKit
 
 struct MediaReviewView: View {
     @EnvironmentObject private var library: LibraryStore
@@ -93,19 +94,34 @@ struct MediaReviewView: View {
                 }
                 if item.mediaRelativePath != nil {
                     if item.sourceFilename.lowercased().hasSuffix(".movpkg") {
-                        Button("Try Export HLS as MP4") { exportMedia(item) }
+                        Button("Try Convert Offline HLS to MP4") { exportMedia(item) }
                             .disabled(isExportingMedia || mediaURL == nil)
-                        Text("Only works if iOS permits export of this unprotected HLS asset.")
+                        Text("Apple-managed HLS packages might not be exportable. If conversion fails, try a direct MP4 from the source page.")
                             .font(.caption).foregroundStyle(.secondary)
                     } else {
                         Button("Export Media") { exportMedia(item) }
                             .disabled(isExportingMedia || mediaURL == nil)
+                    }
+                    if let sourcePage = shareableSourcePage(for: item) {
+                        Button("Copy Original Page Link") {
+                            UIPasteboard.general.string = sourcePage.absoluteString
+                            exportErrorMessage = "Original webpage link copied. Open Video Intelligence Website Browser, paste the address, and use Get Video to look for a direct MP4 copy. Your offline HLS file is unchanged."
+                        }
                     }
                     Button("Delete Media Only", role: .destructive) { Task { await library.deleteMedia(item); await reload() } }
                 }
                 Button("Delete Entire Item", role: .destructive) { confirmDelete = true }
             } label: { Label("More", systemImage: "ellipsis.circle") }.buttonStyle(.bordered)
         }
+    }
+
+    private func shareableSourcePage(for item: MediaLibraryItem) -> URL? {
+        guard let value = item.sourceURL,
+              let url = URL(string: value),
+              url.scheme?.lowercased() == "https",
+              URLSafetyPolicy.isPublic(url),
+              url.user == nil, url.password == nil else { return nil }
+        return url
     }
 
     private func reload() async {
@@ -193,7 +209,11 @@ struct MediaReviewView: View {
                 shareURL = destination
             } catch {
                 try? FileManager.default.removeItem(at: folder)
-                exportErrorMessage = "Unable to export: \(error.localizedDescription)"
+                if item.sourceFilename.lowercased().hasSuffix(".movpkg") {
+                    exportErrorMessage = "iOS could not convert this offline HLS package into MP4 (\(error.localizedDescription)). The original file was not altered. Apple's exporter does not reliably support offline HLS packages. For a shareable file, open the original page and use Get Video to find a direct MP4. A future HLS-to-MP4 remuxer would need access to the original unprotected stream."
+                } else {
+                    exportErrorMessage = "Unable to export media: \(error.localizedDescription)"
+                }
             }
         }
     }
