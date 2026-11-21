@@ -1,7 +1,7 @@
 name: Video Intelligence Public iOS Build
 
 on:
-  # Retest: corrected SwiftUI download count and FIFO browser queue.
+  # Test: focused playing HLS, all stream visibility, and swipe-resistant full-screen browser.
   # One-off CI gate for this experimental branch. Only this workflow-file
   # change triggers a push build; ordinary source edits remain manual.
   push:
@@ -16,6 +16,7 @@ on:
       - feature/orbot-privacy-routing-2026-11-20
       - feature/hls-offline-save-2026-11-20
       - feature/in-browser-download-center-2026-11-21
+      - feature/playing-video-focus-no-swipe-2026-11-21
     paths:
       - .github/workflows/public-build.yml
   workflow_dispatch:
