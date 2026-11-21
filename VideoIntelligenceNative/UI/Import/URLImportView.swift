@@ -14,6 +14,7 @@ struct URLImportView: View {
     @State private var errorMessage: String?
     @State private var showTikTokBrowser = false
     @State private var showUniversalBrowser = false
+    @State private var showTorRouting = false
     @State private var queuedProviderHandoff: URL?
     @State private var tikTokMode: SocialDownloadMode = .video
     @State private var universalMode: SocialDownloadMode = .video
@@ -26,6 +27,14 @@ struct URLImportView: View {
                 Section("Media URL") {
                     TextField("Video URL, blog, forum, or website", text: $value).textInputAutocapitalization(.never).keyboardType(.URL).autocorrectionDisabled()
                     if let provider { LabeledContent("Detected", value: provider.rawValue) }
+                }
+                Section("Privacy routing · optional") {
+                    Button { showTorRouting = true } label: {
+                        Label("Orbot / Tor Routing", systemImage: "lock.shield")
+                    }
+                    Text("Start Tor only when you choose. Check whether this app's connection uses Tor before browsing or downloading.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
                 if provider == .tiktok && resolved == nil {
                     Section("TikTok download") {
@@ -165,6 +174,9 @@ struct URLImportView: View {
                         }
                     )
                 }
+            }
+            .sheet(isPresented: $showTorRouting) {
+                TorRoutingView()
             }
             .task { await instagramSession.refresh() }
             .sheet(isPresented: $showingInstagramSignIn, onDismiss: { Task { await instagramSession.refresh() } }) {
