@@ -225,8 +225,16 @@ actor LibraryStorage {
     }
 
     func clearCaches() throws {
-        if fileManager.fileExists(atPath: cachesURL.path) { try fileManager.removeItem(at: cachesURL) }
-        try fileManager.createDirectory(at: cachesURL, withIntermediateDirectories: true)
+        // NEVER remove Library/Caches wholesale. Apple may store offline
+        // AVAssetDownloadURLSession .movpkg video packages anywhere inside
+        // its system-managed cache tree; those are user media, not disposable.
+        // Only delete the app's explicitly owned regenerable preview folder.
+        let owned = cachesURL.appendingPathComponent(
+            "VideoIntelligenceRegenerable", isDirectory: true)
+        if fileManager.fileExists(atPath: owned.path) {
+            try fileManager.removeItem(at: owned)
+        }
+        try fileManager.createDirectory(at: owned, withIntermediateDirectories: true)
     }
 
     func storageUsage() -> Int64 {
