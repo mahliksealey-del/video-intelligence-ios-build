@@ -1,7 +1,7 @@
 name: Video Intelligence Public iOS Build
 
 on:
-  # Final test: normalized selected clip IDs and cancellation-safe playback capture.
+  # Recovery CI: relink legacy offline HLS after container changes, conditional media export.
   # One-off CI gate for this experimental branch. Only this workflow-file
   # change triggers a push build; ordinary source edits remain manual.
   push:
@@ -18,6 +18,7 @@ on:
       - feature/in-browser-download-center-2026-11-21
       - feature/playing-video-focus-no-swipe-2026-11-21
       - feature/player-locked-capture-pip-redgifs-2026-11-21
+      - fix/hls-library-relink-export-2026-11-21
     paths:
       - .github/workflows/public-build.yml
   workflow_dispatch:
