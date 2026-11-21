@@ -1,7 +1,7 @@
 name: Video Intelligence Public iOS Build
 
 on:
-  # Final recovery CI: protect Apple-managed HLS caches, audit missing files, relink legacy references, conditionally export MP4.
+  # Final HLS recovery: portable paths with /var aliases, safe caches, media health, export attempt.
   # One-off CI gate for this experimental branch. Only this workflow-file
   # change triggers a push build; ordinary source edits remain manual.
   push:
@@ -36,7 +36,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: video-intelligence-public-ios-validation
+  group: video-intelligence-public-ios-validation-hls-recovery-final
   cancel-in-progress: false
 
 jobs:
