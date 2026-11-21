@@ -58,6 +58,21 @@ Direct downloads reject unsafe local-address literals, excessive files, text res
 This native application includes Keraunos-derived GPLv3 components and is distributed under GPLv3. See `LICENSE-GPL-3.0.txt` and `THIRD_PARTY_NOTICES.md` for exact sources, revisions, hashes, and other upstream licenses. Model weights are not vendored.
 
 
+## HLS VOD to MP4 — source remux experiment (2026-11-21)
+
+**User-verified baseline:** previously missing HLS library media reappeared after container-path recovery; playback and normal TikTok/Instagram/YouTube MP4 exports work; OSStatus -50 disappeared after the audio-session fix. Offline HLS movpkg conversion still fails with AVAssetExportSession. Do not alter that recovered library or existing browser and downloader.
+
+**New two-choice browser flow:** after Get Video captures a specific HLS playlist, **Save MP4** uses a new bounded download-queue job to fetch that specific public HTTPS VOD source, remux its segments into a distinct MP4, validate a video track with AVFoundation, then import it into Documents/Videos for ordinary playback and Export Media. **Save Offline** remains the unchanged AVAssetDownloadURLSession movpkg path. Users may choose either or both; queue de-duplication distinguishes the two modes. Separate cancel/progress/failure states remain available in Downloads. No automatic conversion of all detected streams and no page-wide HLS guesses.
+
+**Supported in this experiment:** MPEG-TS H.264/AAC HLS via pinned MIT hls2mp4 library, with native Foundation HTTPS and CommonCrypto platform adapters. Clear HLS fMP4/CMAF with a single multiplexed audio/video rendition is assembled into MP4 by streaming initialization and segment files to disk, and independently video-track validated. This is stream copy/remux, not re-encoding; incompatible codecs, separate-audio renditions, live playlists, byte ranges, SAMPLE-AES/FairPlay or unavailable authenticated/expired URLs fail safely. Some fragment sequences may be rejected by AVFoundation. No DRM bypass. The original Apple-managed movpkg is never copied, moved, overwritten, or deleted by remux. Source/segment URLs are HTTPS validated and redirects checked; use temporary files and remove incomplete output on failure.
+
+**Library Review:** new offline HLS library entries remember the selected playlist URL in an optional backward-compatible hlsPlaylistURL field. Their HLS export action can re-fetch/remux the source to a new temporary MP4 share-sheet item. Legacy movpkg entries do not contain the playlist URL; they preserve the existing Apple export attempt and **Copy Original Page Link** to revisit Get Video → Save MP4. A playable offline movpkg is not equivalent to an extractable MP4 source; expired playlist resources or DRM remain limitations.
+
+**Open source provenance:** pinned cstsortan/hls2mp4 commit 2e3adcbc95c689be2ff66d854ce38675e988eb17 (MIT), with minimp4 public-domain notices preserved; no libcurl/mbedTLS framework. Native Objective-C adapters use iOS URLSession/CommonCrypto. See THIRD_PARTY_NOTICES.md, SOURCE_PROVENANCE.md and the vendored LICENSE-MIT.txt. This is deliberately smaller than the full FFmpegKitNext build and must be tested on real HLS TS/fMP4 fixtures before any stable promotion.
+
+**Acceptance checks:** build/test-target compilation, verify TS VOD parsing and fMP4 VOD plans, no live/DRM/unsafe URLs accepted, two simultaneous native/offline queue jobs can coexist, cancel between segments, inspect resulting MP4 on iPhone, Export Media to Files/Photos, ensure existing movpkg and recovered library unchanged, and retest the full TikTok/Instagram/YouTube/Get Video/PiP/Downloads path. Native compile-only CI cannot establish device playback/export of actual HLS source; keep this branch experimental until the user confirms.
+
+Research: https://github.com/cstsortan/hls2mp4 ; https://developer.apple.com/documentation/avfoundation/avassetdownloadurlsession ; https://github.com/arthenica/ffmpeg-kit-next
 ## HLS playback and export: physical-device follow-up (2026-11-21)
 
 **Device result:** older offline HLS library items are visible again, but an MP4 conversion attempt reported Apple's "Operation Stopped" error, and media playback displayed "Audio output could not be activated … OSStatus error -50." File-path recovery is not proof of successful playable/exportable content.
