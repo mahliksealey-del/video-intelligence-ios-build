@@ -27,8 +27,9 @@ struct SettingsView: View {
                 }
                 Section("Storage") {
                     LabeledContent("App storage", value: ByteCountFormatter.string(fromByteCount: library.storageBytes, countStyle: .file))
-                    Button("Clear Regenerable Caches") { Task { await library.clearCaches() } }
-                    Text("Media remains in Files → On My iPhone → Video Intelligence. Clearing caches does not delete media, transcripts, or validated models.").font(.footnote).foregroundStyle(.secondary)
+                    Button("Clear App Preview Cache") { Task { await library.clearCaches() } }
+                    Text("Only Video Intelligence's own regenerable preview cache is cleared. Offline HLS packages may be system-managed inside Library/Caches; this action never deletes those packages. Regular videos remain in Files → On My iPhone → Video Intelligence.")
+                        .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Diagnostics") {
                     Button("Export Diagnostics") { Task { shareURL = await library.modelManager.diagnosticsURL() } }
