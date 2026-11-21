@@ -191,7 +191,7 @@ struct HLSMP4ConversionService {
         let cfg = URLSessionConfiguration.ephemeral
         cfg.timeoutIntervalForRequest = 25
         cfg.timeoutIntervalForResource = 45
-        cfg.HTTPCookieAcceptPolicy = .never
+        cfg.httpCookieAcceptPolicy = .never
         cfg.httpShouldSetCookies = false
         let session = URLSession(configuration: cfg, delegate: HLSDownloadRedirectGuard(),
                                  delegateQueue: nil)
