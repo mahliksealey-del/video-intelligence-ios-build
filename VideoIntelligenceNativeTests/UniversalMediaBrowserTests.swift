@@ -182,6 +182,77 @@ final class UniversalMediaBrowserTests: XCTestCase {
         XCTAssertNotNil(UniversalMediaFrameResult.merge([prior], result)[0].posterURL)
     }
 
+    func testPlayingVideoFocusFindsActiveMiddleStreamInsteadOfGuessingFirst() throws {
+        let json = #"""
+        {"pageURL":"https://feed.example.org/stream",
+         "candidates":[
+          {"url":"https://cdn.example.org/old.m3u8","kind":"hls","playing":false},
+          {"url":"https://cdn.example.org/visible.m3u8","kind":"hls","playing":true,
+           "poster":"https://cdn.example.org/visible-poster.jpg","association":"player"},
+          {"url":"https://cdn.example.org/next.m3u8","kind":"hls","playing":false}
+         ]}
+        """#
+        let items = try UniversalWebMediaResolver.decode(
+            json, expectedPageURL: URL(string: "https://feed.example.org/stream")!)
+        let preferred = UniversalMediaFocus.preferred(items)
+        XCTAssertEqual(preferred.count, 1)
+        XCTAssertEqual(preferred[0].url.lastPathComponent, "visible.m3u8")
+        XCTAssertEqual(preferred[0].association, .player)
+    }
+
+    func testNoArbitraryHLSSelectionWhenSeveralStreamsAreUnlinked() throws {
+        let json = #"""
+        {"pageURL":"https://feed.example.org/stream",
+         "candidates":[
+          {"url":"https://cdn.example.org/one.m3u8","kind":"hls","playing":false},
+          {"url":"https://cdn.example.org/two.m3u8","kind":"hls","playing":false},
+          {"url":"https://cdn.example.org/three.m3u8","kind":"hls","playing":false}
+         ]}
+        """#
+        let candidates = try UniversalWebMediaResolver.decode(
+            json, expectedPageURL: URL(string: "https://feed.example.org/stream")!)
+        XCTAssertEqual(candidates.count, 3)
+        XCTAssertTrue(UniversalMediaFocus.preferred(candidates).isEmpty)
+    }
+
+    func testPossibleAssociationMustBeUniqueAndCannotClaimCertainPlayback() throws {
+        let json = #"""
+        {"pageURL":"https://feed.example.org/stream",
+         "candidates":[
+          {"url":"https://cdn.example.org/old.m3u8","kind":"hls","playing":false},
+          {"url":"https://cdn.example.org/possible.m3u8","kind":"hls","playing":false,
+           "association":"possible"}
+         ]}
+        """#
+        let items = try UniversalWebMediaResolver.decode(
+            json, expectedPageURL: URL(string: "https://feed.example.org/stream")!)
+        let preferred = UniversalMediaFocus.preferred(items)
+        XCTAssertEqual(preferred.count, 1)
+        XCTAssertEqual(preferred[0].association, .possible)
+        XCTAssertFalse(preferred[0].isPlaying)
+        let other = UniversalWebMediaCandidate(
+            url: URL(string: "https://cdn.example.org/another.m3u8")!,
+            pageURL: items[0].pageURL, title: "Other",
+            userAgent: nil, kind: .hls, isPlaying: false,
+            association: .possible)
+        XCTAssertTrue(UniversalMediaFocus.preferred(items + [other]).isEmpty)
+    }
+
+    func testOneUnlinkedStreamIsNeverAdvertisedAsConfirmedPlaying() throws {
+        let json = #"""
+        {"pageURL":"https://feed.example.org/watch/one",
+         "candidates":[
+          {"url":"https://cdn.example.org/one.m3u8","kind":"hls","playing":false}
+         ]}
+        """#
+        let items = try UniversalWebMediaResolver.decode(
+            json, expectedPageURL: URL(string: "https://feed.example.org/watch/one")!)
+        XCTAssertEqual(UniversalMediaFocus.preferred(items).count, 1)
+        XCTAssertEqual(items[0].association, .unknown)
+        XCTAssertFalse(items[0].isPlaying)
+        XCTAssertTrue(UniversalMediaFrameProbe.script.contains("activePlayers.length === 1"))
+    }
+
     func testBrowserTransferNeverSendsTokenBearingPageAsReferer() throws {
         let candidate = UniversalWebMediaCandidate(
             url: URL(string: "https://media.example.com/v.mp4?token=abc")!,
