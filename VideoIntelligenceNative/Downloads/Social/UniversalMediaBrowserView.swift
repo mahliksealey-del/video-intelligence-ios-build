@@ -87,7 +87,7 @@ enum UniversalWebMediaResolver {
                 association: raw.playing == true ? .player :
                     UniversalWebMediaCandidate.Association(rawValue: raw.association ?? "") ?? .unknown
             ))
-            if candidates.count == 12 { break }
+            if candidates.count == 24 { break }
         }
         candidates.sort {
             if $0.isPlaying != $1.isPlaying { return $0.isPlaying }
