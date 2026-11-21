@@ -128,6 +128,60 @@ final class UniversalMediaBrowserTests: XCTestCase {
         XCTAssertThrowsError(try UniversalWebMediaResolver.resolved(candidate))
     }
 
+    func testBrowserQueueLimitsActiveTransfersToTwo() {
+        func job(_ state: BrowserDownloadStatus) -> BrowserDownloadJob {
+            BrowserDownloadJob(
+                id: UUID(), title: "Video", host: "cdn.example.org",
+                queuedAt: Date(), startedAt: nil, status: state,
+                progress: 0, savedItemID: nil, errorMessage: nil)
+        }
+        let queue = [job(.completed), job(.queued), job(.queued), job(.queued)]
+        XCTAssertEqual(BrowserDownloadQueuePolicy.maxConcurrent, 2)
+        XCTAssertEqual(BrowserDownloadQueuePolicy.nextQueuedIndex(in: queue, activeCount: 0), 1)
+        XCTAssertEqual(BrowserDownloadQueuePolicy.nextQueuedIndex(in: queue, activeCount: 1), 1)
+        XCTAssertNil(BrowserDownloadQueuePolicy.nextQueuedIndex(in: queue, activeCount: 2))
+        XCTAssertNil(BrowserDownloadQueuePolicy.nextQueuedIndex(
+            in: [job(.failed), job(.canceled), job(.completed)], activeCount: 0))
+    }
+
+    func testPosterOnlyBelongsToCandidateWithPlayerAssociation() throws {
+        let json = #"""
+        {"pageURL":"https://feed.example.org/watch",
+         "candidates":[
+           {"url":"https://cdn.example.org/active.m3u8","kind":"hls","playing":true,
+            "poster":"https://cdn.example.org/thumb1.jpg"},
+           {"url":"https://cdn.example.org/other.m3u8","kind":"hls","playing":false},
+           {"url":"https://cdn.example.org/direct.mp4","kind":"direct","playing":false,
+            "poster":"https://127.0.0.1/secret.jpg"}
+         ]}
+        """#
+        let candidates = try UniversalWebMediaResolver.decode(
+            json, expectedPageURL: URL(string: "https://feed.example.org/watch")!)
+        XCTAssertEqual(candidates.count, 3)
+        XCTAssertEqual(candidates[0].posterURL?.lastPathComponent, "thumb1.jpg")
+        XCTAssertNil(candidates[1].posterURL)
+        XCTAssertNil(candidates[2].posterURL)
+        XCTAssertTrue(UniversalWebMediaResolver.script.contains("video.poster"))
+        XCTAssertTrue(UniversalMediaFrameProbe.script.contains("player.poster"))
+    }
+
+    func testCrossOriginFramePreservesValidatedPlayerPoster() throws {
+        let json = #"""
+        {"nonce":"00000000-0000-0000-0000-000000000001",
+         "pageURL":"https://embed.example.org/clip",
+         "candidates":[{"url":"https://cdn.example.org/a.m3u8","kind":"hls",
+                        "playing":true,"poster":"https://embed.example.org/poster.jpg"}]}
+        """#
+        let result = try UniversalMediaFrameResult.decode(
+            json, frameURL: URL(string: "https://embed.example.org/clip")!,
+            expectedNonce: "00000000-0000-0000-0000-000000000001")
+        XCTAssertEqual(result.first?.posterURL?.lastPathComponent, "poster.jpg")
+        let prior = UniversalWebMediaCandidate(
+            url: result[0].url, pageURL: result[0].pageURL, title: result[0].title,
+            userAgent: nil, kind: .hls, isPlaying: false)
+        XCTAssertNotNil(UniversalMediaFrameResult.merge([prior], result)[0].posterURL)
+    }
+
     func testBrowserTransferNeverSendsTokenBearingPageAsReferer() throws {
         let candidate = UniversalWebMediaCandidate(
             url: URL(string: "https://media.example.com/v.mp4?token=abc")!,
