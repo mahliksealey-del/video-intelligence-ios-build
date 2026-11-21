@@ -57,6 +57,15 @@ willPerformHTTPRedirection:(NSHTTPURLResponse *)response
 }
 @end
 
+// Request headers are scoped to the caller's worker thread: concurrent
+// browser conversions cannot leak headers into one another's requests.
+static __thread char vi_referer[2048];
+static __thread char vi_user_agent[512];
+void hls_remux_http_set_request_headers(const char *referer, const char *user_agent) {
+    snprintf(vi_referer, sizeof(vi_referer), "%s", referer ? referer : "");
+    snprintf(vi_user_agent, sizeof(vi_user_agent), "%s", user_agent ? user_agent : "");
+}
+
 static int vi_fetch(const char *urlText, uint8_t **out, size_t *length, int timeoutMS) {
     if (!urlText || !out || !length || [NSThread isMainThread]) return HLS2MP4_ERR_NETWORK;
     *out = NULL;
@@ -78,7 +87,12 @@ static int vi_fetch(const char *urlText, uint8_t **out, size_t *length, int time
         dispatch_semaphore_t gate = dispatch_semaphore_create(0);
         __block NSData *received = nil;
         __block NSInteger status = 0;
-        NSURLSessionDataTask *task = [session dataTaskWithURL:url
+        NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+        if (vi_referer[0]) [request setValue:[NSString stringWithUTF8String:vi_referer]
+                            forHTTPHeaderField:@"Referer"];
+        if (vi_user_agent[0]) [request setValue:[NSString stringWithUTF8String:vi_user_agent]
+                               forHTTPHeaderField:@"User-Agent"];
+        NSURLSessionDataTask *task = [session dataTaskWithRequest:request
             completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
             if (!error && data && [response isKindOfClass:NSHTTPURLResponse.class] &&
                 vi_safe_url(response.URL)) {
