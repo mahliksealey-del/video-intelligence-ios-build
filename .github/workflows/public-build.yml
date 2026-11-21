@@ -1,7 +1,7 @@
 name: Video Intelligence Public iOS Build
 
 on:
-  # Playback/export repair: valid audio session on iOS, HLS limits and source-page fallback.
+  # Experimental source HLS VOD to MP4 via pinned native TS remuxer and Swift fMP4 segment writer.
   # One-off CI gate for this experimental branch. Only this workflow-file
   # change triggers a push build; ordinary source edits remain manual.
   push:
@@ -20,6 +20,7 @@ on:
       - feature/player-locked-capture-pip-redgifs-2026-11-21
       - fix/hls-library-relink-export-2026-11-21
       - fix/hls-playback-export-diagnostics-2026-11-21
+      - feature/hls-source-mp4-remux-2026-11-21
     paths:
       - .github/workflows/public-build.yml
   workflow_dispatch:
