@@ -3,6 +3,15 @@ import AVKit
 import Combine
 import SwiftUI
 
+/// Playback-only sessions already support AirPlay and Bluetooth A2DP.
+/// Avoid .allowAirPlay/.allowBluetoothA2DP: Apple limits those explicit
+/// options to playAndRecord and iOS can reject them with OSStatus -50.
+enum MediaPlaybackAudioPolicy {
+    static let category: AVAudioSession.Category = .playback
+    static let mode: AVAudioSession.Mode = .moviePlayback
+    static let options: AVAudioSession.CategoryOptions = []
+}
+
 @MainActor
 final class MediaPlayerController: ObservableObject {
     @Published private(set) var isPlaying = false
@@ -67,7 +76,9 @@ final class MediaPlayerController: ObservableObject {
     private func configureAudioSession() {
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .moviePlayback, options: [.allowAirPlay, .allowBluetoothA2DP])
+            try session.setCategory(MediaPlaybackAudioPolicy.category,
+                                    mode: MediaPlaybackAudioPolicy.mode,
+                                    options: MediaPlaybackAudioPolicy.options)
             try session.setActive(true)
         } catch { errorMessage = "Audio output could not be activated: \(error.localizedDescription)" }
     }
