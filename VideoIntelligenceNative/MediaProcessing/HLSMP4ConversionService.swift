@@ -54,6 +54,9 @@ enum HLSPlaylistPlanner {
               let host = url.host?.lowercased(),
               !host.isEmpty, !host.hasSuffix(".localhost"),
               !host.hasSuffix(".internal"), !host.hasSuffix(".onion"),
+              !host.contains(":"),
+              !(host.split(separator: ".").count == 4 &&
+                host.split(separator: ".").allSatisfy { Int($0) != nil }),
               URLSafetyPolicy.isPublic(url) else {
             throw HLSMP4Error.unsafeSource
         }
@@ -129,6 +132,9 @@ enum HLSPlaylistPlanner {
         var segments: [URL] = []
         for line in lines {
             if line.hasPrefix("#EXT-X-MAP:") {
+                guard !line.contains("BYTERANGE") else {
+                    throw HLSMP4Error.unsupportedFeatures
+                }
                 guard let value = quotedURI(line) else { throw HLSMP4Error.invalidPlaylist }
                 map = try resolve(value, relativeTo: playlistURL)
             } else if line.hasPrefix("#EXT-X-KEY:") {
