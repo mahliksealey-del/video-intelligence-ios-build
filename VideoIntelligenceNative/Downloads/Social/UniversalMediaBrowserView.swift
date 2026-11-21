@@ -599,6 +599,13 @@ struct UniversalMediaBrowserView: View {
         captureIssue = nil
         if let id = player.redGifsClipID {
             isResolvingCapturedClip = true
+            defer {
+                // A delayed response from an older clip must not leave the
+                // loading indicator stuck or overwrite a newer capture.
+                if selectedPlayer == player || selectedPlayer == nil {
+                    isResolvingCapturedClip = false
+                }
+            }
             do {
                 let candidate = try await RedGifsSelectedClipResolver().resolve(player)
                 guard selectedPlayer == player else { return }
@@ -613,7 +620,6 @@ struct UniversalMediaBrowserView: View {
                     : nil
                 if captureIssue != nil { statusText = "Source lookup unavailable for the captured clip." }
             }
-            isResolvingCapturedClip = false
             return
         }
         capturedCandidate = player.directCandidate
