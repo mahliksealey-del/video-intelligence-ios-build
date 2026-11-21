@@ -202,6 +202,29 @@ actor LibraryStorage {
         return (result, repaired, unresolved)
     }
 
+    /// Non-destructive health check: distinguish found HLS packages from
+    /// unavailable ones without copying, downloading, or deleting anything.
+    func offlineHLSHealth(_ items: [MediaLibraryItem])
+        -> (available: Int, unavailable: Int) {
+        var available = 0
+        var unavailable = 0
+        for item in items {
+            guard let reference = item.mediaRelativePath,
+                  item.sourceFilename.lowercased().hasSuffix(".movpkg") ||
+                  reference.hasPrefix(Self.offlineHLSPrefix) ||
+                  reference.hasPrefix(Self.offlineHLSRelativePrefix) else {
+                continue
+            }
+            if let location = try? URLFor(relativePath: reference),
+               fileManager.fileExists(atPath: location.path) {
+                available += 1
+            } else {
+                unavailable += 1
+            }
+        }
+        return (available, unavailable)
+    }
+
     func writeTranscript(_ transcript: TranscriptRecord, id: UUID) throws -> String {
         try prepareDirectories()
         let relative = "Transcripts/\(id.uuidString.lowercased()).json"
