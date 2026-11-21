@@ -2,6 +2,57 @@ import AVFoundation
 import Combine
 import Foundation
 
+/// A browser transfer owns its own task and never uses the legacy single-operation slot.
+enum BrowserDownloadStatus: String, Sendable {
+    case queued, running, completed, failed, canceled
+}
+
+struct BrowserDownloadJob: Identifiable, Sendable {
+    let id: UUID
+    let title: String
+    let host: String
+    let queuedAt: Date
+    var startedAt: Date?
+    var status: BrowserDownloadStatus
+    var progress: Double
+    var savedItemID: UUID?
+    var errorMessage: String?
+}
+
+enum BrowserDownloadRequest: Sendable {
+    case hls(UniversalWebMediaCandidate)
+    case direct(ResolvedSocialMedia, pageURL: URL, mode: SocialDownloadMode)
+
+    var mediaURL: URL {
+        switch self {
+        case .hls(let candidate): return candidate.url
+        case .direct(let media, _, _):
+            switch media.kind {
+            case .progressive(let track): return track.url
+            case .adaptive(let video, _): return video.url
+            }
+        }
+    }
+
+    var sourceTitle: String {
+        switch self {
+        case .hls(let candidate): return candidate.title + " (HLS Offline)"
+        case .direct(let media, _, _): return media.title
+        }
+    }
+}
+
+enum BrowserDownloadQueuePolicy {
+    static let maxConcurrent = 2
+    static let maxPending = 20
+
+    static func nextQueuedIndex(in jobs: [BrowserDownloadJob],
+                                activeCount: Int) -> Int? {
+        guard activeCount < maxConcurrent else { return nil }
+        return jobs.firstIndex(where: { $0.status == .queued })
+    }
+}
+
 @MainActor
 final class LibraryStore: ObservableObject {
     @Published private(set) var items: [MediaLibraryItem] = []
@@ -11,6 +62,10 @@ final class LibraryStore: ObservableObject {
     @Published var storageBytes: Int64 = 0
     @Published var socialDownloadProgress: Double?
     @Published var socialDownloadStartedAt: Date?
+    @Published private(set) var browserDownloads: [BrowserDownloadJob] = []
+
+    private var browserRequests: [UUID: BrowserDownloadRequest] = [:]
+    private var browserTasks: [UUID: Task<Void, Never>] = [:]
 
     let storage: LibraryStorage
     let modelManager: WhisperModelManager
@@ -213,6 +268,162 @@ final class LibraryStore: ObservableObject {
             }
             socialDownloadProgress = nil
             socialDownloadStartedAt = nil
+        }
+    }
+
+    /// Enqueue a user-selected browser stream without dismissing its WKWebView.
+    /// The original social/provider downloader remains untouched.
+    @discardableResult
+    func queueBrowserDownload(_ candidate: UniversalWebMediaCandidate,
+                              mode: SocialDownloadMode) -> UUID? {
+        if candidate.kind == .hls {
+            guard HLSOfflineDownloadService.supports(candidate) else {
+                errorMessage = "This HLS stream cannot be saved offline by iOS."
+                return nil
+            }
+            return queueBrowserRequest(.hls(candidate))
+        }
+        do {
+            let resolved = try UniversalWebMediaResolver.resolved(candidate)
+            return queueBrowserRequest(.direct(resolved, pageURL: candidate.pageURL, mode: mode))
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    private func queueBrowserRequest(_ request: BrowserDownloadRequest) -> UUID? {
+        // Prevent accidental duplicate taps while queued or downloading, not
+        // intentional new downloads after a previous attempt finishes.
+        if let existing = browserRequests.first(where: {
+            $0.value.mediaURL == request.mediaURL
+        }) {
+            return existing.key
+        }
+        let pending = browserDownloads.filter {
+            $0.status == .queued || $0.status == .running
+        }.count
+        guard pending < BrowserDownloadQueuePolicy.maxPending else {
+            errorMessage = "The browser download queue is full. Finish or cancel a transfer before adding another."
+            return nil
+        }
+        let id = UUID()
+        browserRequests[id] = request
+        browserDownloads.insert(BrowserDownloadJob(
+            id: id, title: request.sourceTitle,
+            host: request.mediaURL.host ?? "Website video",
+            queuedAt: Date(), startedAt: nil, status: .queued,
+            progress: 0, savedItemID: nil, errorMessage: nil
+        ), at: 0)
+        pumpBrowserDownloads()
+        return id
+    }
+
+    private func updateBrowserDownload(_ id: UUID, _ mutate: (inout BrowserDownloadJob) -> Void) {
+        guard let index = browserDownloads.firstIndex(where: { $0.id == id }) else { return }
+        mutate(&browserDownloads[index])
+    }
+
+    private func pumpBrowserDownloads() {
+        while let index = BrowserDownloadQueuePolicy.nextQueuedIndex(
+            in: browserDownloads, activeCount: browserTasks.count) {
+            let id = browserDownloads[index].id
+            guard let request = browserRequests[id] else { break }
+            updateBrowserDownload(id) {
+                $0.status = .running
+                $0.startedAt = Date()
+            }
+            browserTasks[id] = Task {
+                do {
+                    let savedID = try await performBrowserDownload(request, id: id)
+                    try Task.checkCancellation()
+                    updateBrowserDownload(id) {
+                        $0.status = .completed
+                        $0.progress = 1
+                        $0.savedItemID = savedID
+                    }
+                } catch {
+                    if Task.isCancelled || error is CancellationError ||
+                        (error as? URLError)?.code == .cancelled {
+                        updateBrowserDownload(id) { $0.status = .canceled }
+                    } else {
+                        updateBrowserDownload(id) {
+                            $0.status = .failed
+                            $0.errorMessage = error.localizedDescription
+                        }
+                    }
+                }
+                browserRequests[id] = nil
+                browserTasks[id] = nil
+                pumpBrowserDownloads()
+            }
+        }
+    }
+
+    private func performBrowserDownload(_ request: BrowserDownloadRequest,
+                                        id: UUID) async throws -> UUID {
+        let onProgress: @Sendable (Double) -> Void = { [weak self] value in
+            Task { @MainActor in
+                self?.updateBrowserDownload(id) { job in
+                    if job.status == .running {
+                        job.progress = max(job.progress, min(0.99, max(0, value)))
+                    }
+                }
+            }
+        }
+        switch request {
+        case .direct(let media, let pageURL, let mode):
+            let result = try await SocialMediaDownloadService().download(
+                media, sourceURL: pageURL, mode: mode, progress: onProgress)
+            defer {
+                try? FileManager.default.removeItem(at: result.fileURL.deletingLastPathComponent())
+            }
+            try Task.checkCancellation()
+            guard let saved = await importFile(result.fileURL,
+                                               sourceURL: pageURL.absoluteString,
+                                               title: result.title) else {
+                throw SocialExtractionError.runtime(
+                    "The downloaded video could not be added to the library.")
+            }
+            if result.shouldTranscribe, let item = items.first(where: { $0.id == saved }) {
+                // Transcription remains a separate single-operation workflow.
+                transcribe(item)
+            }
+            return saved
+
+        case .hls(let candidate):
+            let packageURL = try await HLSOfflineDownloadService().download(
+                candidate, progress: onProgress)
+            try Task.checkCancellation()
+            // Preserve Apple's system-managed .movpkg at its original location.
+            let asset = AVURLAsset(url: packageURL)
+            guard try await asset.load(.isPlayable) else {
+                throw MediaImportError.unsupportedType
+            }
+            let duration = try await metadata.duration(of: packageURL)
+            try Task.checkCancellation()
+            let reference = try await storage.registerOfflineHLSAsset(at: packageURL)
+            let id = UUID()
+            items.insert(MediaLibraryItem(
+                id: id, title: candidate.title + " (HLS Offline)",
+                kind: .video, sourceFilename: packageURL.lastPathComponent,
+                sourceURL: candidate.pageURL.absoluteString,
+                mediaRelativePath: reference, importedAt: Date(),
+                duration: duration, status: .ready, progress: 0), at: 0)
+            try await persist()
+            return id
+        }
+    }
+
+    func cancelBrowserDownload(_ id: UUID) {
+        guard let job = browserDownloads.first(where: { $0.id == id }),
+              job.status == .queued || job.status == .running else { return }
+        if job.status == .queued {
+            updateBrowserDownload(id) { $0.status = .canceled }
+            browserRequests[id] = nil
+            pumpBrowserDownloads()
+        } else {
+            browserTasks[id]?.cancel()
         }
     }
 
