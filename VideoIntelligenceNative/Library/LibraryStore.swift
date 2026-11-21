@@ -86,7 +86,16 @@ final class LibraryStore: ObservableObject {
     func load() async {
         do {
             try await storage.prepareDirectories()
-            items = try await storage.loadIndex().items.sorted { $0.importedAt > $1.importedAt }
+            let index = try await storage.loadIndex()
+            let recovery = await storage.repairOfflineHLSReferences(index.items)
+            // Only persist confirmed, non-destructive repairs. Missing media
+            // records and transcripts stay in the index unchanged.
+            if recovery.repaired > 0 {
+                var migrated = index
+                migrated.items = recovery.items
+                try await storage.saveIndex(migrated)
+            }
+            items = recovery.items.sorted { $0.importedAt > $1.importedAt }
             storageBytes = await storage.storageUsage()
             await modelManager.refresh()
         } catch { errorMessage = error.localizedDescription }
