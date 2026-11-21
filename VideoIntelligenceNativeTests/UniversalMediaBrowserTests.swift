@@ -253,6 +253,96 @@ final class UniversalMediaBrowserTests: XCTestCase {
         XCTAssertTrue(UniversalMediaFrameProbe.script.contains("activePlayers.length === 1"))
     }
 
+    func testPiPCaptureTakesPriorityOverOtherPlayingFrame() throws {
+        let one = BrowserSelectedPlayer(
+            frameURL: URL(string: "https://embed.example.org/a")!,
+            pageURL: URL(string: "https://embed.example.org/a")!,
+            streamURL: URL(string: "https://cdn.example.org/first.m3u8")!,
+            posterURL: nil, redGifsClipID: nil,
+            isPiP: false, isPlaying: true, title: "First", userAgent: nil)
+        let pip = BrowserSelectedPlayer(
+            frameURL: URL(string: "https://embed.example.org/b")!,
+            pageURL: URL(string: "https://embed.example.org/b")!,
+            streamURL: URL(string: "https://cdn.example.org/second.m3u8")!,
+            posterURL: nil, redGifsClipID: nil,
+            isPiP: true, isPlaying: true, title: "Second", userAgent: nil)
+        XCTAssertEqual(BrowserPlayerSelectionPolicy.single([one, pip]), pip)
+        XCTAssertNil(BrowserPlayerSelectionPolicy.single([one, oneChangedSource(one)]))
+        XCTAssertNil(BrowserPlayerSelectionPolicy.single([pip, oneChangedSource(pip)]))
+    }
+
+    private func oneChangedSource(_ source: BrowserSelectedPlayer) -> BrowserSelectedPlayer {
+        BrowserSelectedPlayer(
+            frameURL: source.frameURL, pageURL: source.pageURL,
+            streamURL: URL(string: "https://cdn.example.org/different.mp4")!,
+            posterURL: nil, redGifsClipID: nil,
+            isPiP: source.isPiP, isPlaying: source.isPlaying,
+            title: "Different", userAgent: nil)
+    }
+
+    func testFrameCaptureDecodesOnlyRealActivePlayerNotResourceList() throws {
+        let nonce = "00000000-0000-0000-0000-000000000001"
+        let frame = URL(string: "https://www.redgifs.com/browse")!
+        let json = #"""
+        {"nonce":"00000000-0000-0000-0000-000000000001",
+         "pageURL":"https://www.redgifs.com/browse",
+         "title":"Feed",
+         "candidates":[
+           {"url":"https://api.redgifs.com/old.m3u8","kind":"hls"},
+           {"url":"https://api.redgifs.com/new.m3u8","kind":"hls"}],
+         "selectedPlayer":{"mediaURL":"blob:https://www.redgifs.com/opaque",
+                           "redGifsClipID":"HotpinkAcrobatickitfox",
+                           "isPiP":true,"isPlaying":true}}
+        """#
+        let selection = try XCTUnwrap(
+            UniversalMediaFrameResult.decodeSelectedPlayer(
+                json, frameURL: frame, expectedNonce: nonce))
+        XCTAssertEqual(selection.redGifsClipID, "HotpinkAcrobatickitfox")
+        XCTAssertTrue(selection.isPiP)
+        XCTAssertNil(selection.streamURL)
+        XCTAssertNil(selection.directCandidate)
+        XCTAssertEqual(selection.clipPageURL?.path,
+                       "/watch/HotpinkAcrobatickitfox")
+        XCTAssertNil(BrowserPlayerSelectionPolicy.single([]))
+    }
+
+    func testUntrustedPlayerMetadataCannotPretendToBeRedGifsClip() throws {
+        let nonce = "00000000-0000-0000-0000-000000000001"
+        let json = #"""
+        {"nonce":"00000000-0000-0000-0000-000000000001",
+         "pageURL":"https://unrelated.example.org/watch",
+         "candidates":[],
+         "selectedPlayer":{"mediaURL":"javascript:alert(1)",
+                           "redGifsClipID":"ignored",
+                           "isPiP":false,"isPlaying":true}}
+        """#
+        let selection = try XCTUnwrap(UniversalMediaFrameResult.decodeSelectedPlayer(
+            json, frameURL: URL(string: "https://unrelated.example.org/watch")!,
+            expectedNonce: nonce))
+        XCTAssertNil(selection.redGifsClipID)
+        XCTAssertNil(selection.streamURL)
+        XCTAssertNil(selection.directCandidate)
+        XCTAssertThrowsError(try UniversalMediaFrameResult.decodeSelectedPlayer(
+            json, frameURL: URL(string: "https://evil.example.com")!,
+            expectedNonce: nonce))
+        XCTAssertThrowsError(try UniversalMediaFrameResult.decodeSelectedPlayer(
+            json, frameURL: URL(string: "https://unrelated.example.org/watch")!,
+            expectedNonce: "different"))
+    }
+
+    func testPublicClipMetadataSourceSafetyAndPiPInstrumentation() {
+        XCTAssertTrue(RedGifsSelectedClipResolver.validID("SqueakyHelplessWisent"))
+        XCTAssertFalse(RedGifsSelectedClipResolver.validID("../unsafe"))
+        XCTAssertFalse(RedGifsSelectedClipResolver.validID("x"))
+        XCTAssertNil(RedGifsSelectedClipResolver.decodedMediaURL("http://127.0.0.1/secret.mp4"))
+        XCTAssertNil(RedGifsSelectedClipResolver.decodedMediaURL("javascript:alert(1)"))
+        XCTAssertEqual(RedGifsSelectedClipResolver.decodedMediaURL(
+            "https://cdn.example.org/file.mp4")?.lastPathComponent, "file.mp4")
+        XCTAssertTrue(UniversalMediaFrameProbe.script.contains("enterpictureinpicture"))
+        XCTAssertTrue(UniversalMediaFrameProbe.script.contains("webkitpresentationmodechanged"))
+        XCTAssertTrue(UniversalMediaFrameProbe.script.contains("sourceClipID(player)"))
+    }
+
     func testBrowserTransferNeverSendsTokenBearingPageAsReferer() throws {
         let candidate = UniversalWebMediaCandidate(
             url: URL(string: "https://media.example.com/v.mp4?token=abc")!,
