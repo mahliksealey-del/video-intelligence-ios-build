@@ -58,6 +58,14 @@ Direct downloads reject unsafe local-address literals, excessive files, text res
 This native application includes Keraunos-derived GPLv3 components and is distributed under GPLv3. See `LICENSE-GPL-3.0.txt` and `THIRD_PARTY_NOTICES.md` for exact sources, revisions, hashes, and other upstream licenses. Model weights are not vendored.
 
 
+## HLS playing-video Save Offline experiment (2026-11-20)
+
+The UMR browser previously displayed **Playing video / Stream detected** with no Save button for detected `.m3u8` playlists. This was intentional because its direct-file downloader cannot produce a valid MP4 from an HLS playlist. The update adds **Save Offline** to HLS candidates and hands the manifest to Apple's official `AVAssetDownloadURLSession` via `HLSOfflineDownloadService`. The system downloads supported on-demand HLS to its native `.movpkg` offline video package, and Video Intelligence copies the package into the existing media library for playback via AVFoundation. The existing direct-file Save buttons and provider routing remain unchanged. No additional paid libraries or runtime dependencies are needed.
+
+**Limits:** An offline HLS `.movpkg` is *not* an MP4, and the app does not yet support export to Photos as MP4, HLS-to-MP4 conversion, live playlist recording, DASH export, DRM removal, or bypassing CDN login/access controls. Some sites require session cookies, Referer headers, or video-specific authorization that native AVAssetDownload cannot supply. If native offline download does not work for a site, the error will be reported rather than an empty or corrupt MP4 being saved. The app permits large offline packages subject to real iPhone free storage, with the existing library import temporarily copying the package (extra disk space may be needed). This is an **experimental device-acceptance candidate**; simulator test compilation doesn't establish that the requested site's HLS stream downloads and plays on the user's physical iPhone.
+
+Source reference: Apple's [Using AVFoundation to play and persist HTTP live streams](https://developer.apple.com/documentation/avfoundation/using-avfoundation-to-play-and-persist-http-live-streams), which explicitly limits native offline HLS saving to Video-on-Demand streams.
+
 ## Library safety: remove bulk Delete All control (2026-11-20)
 
 The library's Import (+) menu no longer exposes **Delete All**, and the corresponding confirmation and library-wide bulk deletion method have been removed. The single-item **Review → More → Delete Entire Item** route (with its confirmation) remains available, as does **Delete Media Only**. The public CI source audit explicitly rejects reintroduction of the former bulk-delete label or handler in the library UI/store. Existing media and transcripts are not altered by this interface update.
