@@ -24,4 +24,8 @@ char *keraunos_python_list_formats(const char *url, const char *cookieFilePath);
 // "__KERAUNOS_JS_ERROR__".
 char *keraunos_js_eval(const char *script, double timeoutMs);
 
+// Public C ABI for the MIT-licensed on-device MPEG-TS HLS remuxer.
+#include "../MediaProcessing/HLSRemux/hls2mp4.h"
+void hls_remux_http_set_request_headers(const char *referer, const char *user_agent);
+
 #endif
