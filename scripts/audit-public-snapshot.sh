@@ -31,7 +31,7 @@ fi
 
 # Prevent accidental reintroduction of destructive library-wide deletion.
 # Individual-item removal remains available from the Review screen.
-if grep -En 'Delete All|confirmDeleteAll|deleteAll\\(' \
+if grep -En 'Delete All|confirmDeleteAll|deleteAll\(' \
   VideoIntelligenceNative/UI/Library/LibraryView.swift \
   VideoIntelligenceNative/Library/LibraryStore.swift; then
   echo 'Forbidden library-wide deletion control or handler detected.' >&2
