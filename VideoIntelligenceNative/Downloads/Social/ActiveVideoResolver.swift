@@ -69,9 +69,9 @@ struct RedGifsSelectedClipResolver {
 
         var errorDescription: String? {
             switch self {
-            case .invalidClipID: "The active RedGifs clip did not have a valid identifier."
-            case .missingToken: "RedGifs did not issue a public media lookup token."
-            case .noPlayableMedia: "RedGifs did not provide a downloadable direct video or HLS source for this clip."
+            case .invalidClipID: return "The active RedGifs clip did not have a valid identifier."
+            case .missingToken: return "RedGifs did not issue a public media lookup token."
+            case .noPlayableMedia: return "RedGifs did not provide a downloadable direct video or HLS source for this clip."
             }
         }
     }
@@ -126,7 +126,14 @@ struct RedGifsSelectedClipResolver {
         }
         let detailURL = URL(string: "https://api.redgifs.com/v2/gifs/" + id)!
         var request = URLRequest(url: detailURL)
+        // Same public-API headers used by the upstream yt-dlp extractor.
+        // No website cookies or user credentials are imported.
         request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
+        request.setValue("https://www.redgifs.com/", forHTTPHeaderField: "Referer")
+        request.setValue("https://www.redgifs.com", forHTTPHeaderField: "Origin")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("https://www.redgifs.com/watch/" + id,
+                         forHTTPHeaderField: "X-Customheader")
         let (body, httpResponse) = try await session.data(for: request)
         guard (httpResponse as? HTTPURLResponse)?.statusCode == 200 else {
             throw ResolutionError.noPlayableMedia
