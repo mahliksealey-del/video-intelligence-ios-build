@@ -1,7 +1,7 @@
 name: Video Intelligence Public iOS Build
 
 on:
-  # Experiment: verify Apple-managed HLS offline asset references and Save Offline.
+  # Experiment: retained browser session, bounded media queue and preview metadata.
   # One-off CI gate for this experimental branch. Only this workflow-file
   # change triggers a push build; ordinary source edits remain manual.
   push:
@@ -15,6 +15,7 @@ on:
       - fix/youtube-player-client-defaults-2026-11-20
       - feature/orbot-privacy-routing-2026-11-20
       - feature/hls-offline-save-2026-11-20
+      - feature/in-browser-download-center-2026-11-21
     paths:
       - .github/workflows/public-build.yml
   workflow_dispatch:
