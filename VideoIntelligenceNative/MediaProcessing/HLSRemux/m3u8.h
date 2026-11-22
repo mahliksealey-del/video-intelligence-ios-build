@@ -10,6 +10,8 @@ typedef struct {
     char     key_url[2048];   /* empty if not encrypted */
     uint8_t  iv[16];
     int      has_iv;          /* 1 if IV was explicit, 0 = use segment sequence number */
+    int64_t  range_start;     /* start of HTTP byte range, 0 for full response */
+    int64_t  range_length;    /* zero for full response, otherwise exact length */
 } M3U8Segment;
 
 typedef struct {
