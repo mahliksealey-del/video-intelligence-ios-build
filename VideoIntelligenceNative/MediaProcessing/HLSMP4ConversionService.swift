@@ -301,12 +301,16 @@ struct HLSMP4ConversionService {
 
         var current = candidate.url
         var selectedPlan: HLSMediaPlan?
+        var alternateAudioURL: URL?
         for _ in 0..<3 {
             let (playlist, finalURL) = try await fetchPlaylist(
                 current, candidate: candidate, session: session)
             switch try HLSPlaylistPlanner.parse(playlist, at: finalURL) {
-            case .master(let next):
-                current = next
+            case .master(let selection):
+                current = selection.variantURL
+                if let audio = selection.alternateAudioURL {
+                    alternateAudioURL = audio
+                }
             case .media(let plan):
                 selectedPlan = plan
             }
@@ -317,15 +321,47 @@ struct HLSMP4ConversionService {
         let destination = FileManager.default.temporaryDirectory
             .appendingPathComponent("VI-HLSMP4-" + UUID().uuidString)
             .appendingPathExtension("mp4")
+        let separateVideo = alternateAudioURL != nil
+            ? FileManager.default.temporaryDirectory
+                .appendingPathComponent("VI-HLSVideo-" + UUID().uuidString)
+                .appendingPathExtension("mp4") : destination
+        let separateAudio = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VI-HLSAudio-" + UUID().uuidString)
+            .appendingPathExtension("mp4")
+        defer {
+            if alternateAudioURL != nil {
+                try? FileManager.default.removeItem(at: separateVideo)
+                try? FileManager.default.removeItem(at: separateAudio)
+            }
+        }
         do {
-            switch plan.format {
-            case .ts:
-                try await convertTransportStream(plan, destination: destination,
-                                                 candidate: candidate, progress: progress)
-            case .fragmentedMP4:
-                try await writeFragmentedMP4(plan, destination: destination,
-                                             candidate: candidate, session: session,
-                                             progress: progress)
+            let videoWeight = alternateAudioURL == nil ? 0.99 : 0.65
+            try await assemble(plan, at: separateVideo, candidate: candidate,
+                               session: session) { fraction in
+                progress(min(videoWeight, fraction * videoWeight))
+            }
+            if let audioURL = alternateAudioURL {
+                let (audioText, actualAudioURL) = try await fetchPlaylist(
+                    audioURL, candidate: candidate, session: session)
+                guard case .media(let audioPlan) = try HLSPlaylistPlanner.parse(
+                    audioText, at: actualAudioURL) else {
+                    throw HLSMP4Error.unsupportedFeatures
+                }
+                try await assemble(audioPlan, at: separateAudio, candidate: candidate,
+                                   session: session) { fraction in
+                    progress(min(0.90, 0.65 + fraction * 0.25))
+                }
+                let audioAsset = AVURLAsset(url: separateAudio)
+                guard !(try await audioAsset.loadTracks(withMediaType: .audio)).isEmpty else {
+                    throw HLSMP4Error.unsupportedFormat
+                }
+                try Task.checkCancellation()
+                // Same non-reencoding AVFoundation composition already used
+                // by the working adaptive-video downloader. Only the newly
+                // assembled copies are composed; no offline movpkg is read.
+                try await SocialMediaMerger().merge(
+                    video: separateVideo, audio: separateAudio, output: destination)
+                progress(0.96)
             }
             try Task.checkCancellation()
             let asset = AVURLAsset(url: destination)
@@ -334,11 +370,31 @@ struct HLSMP4ConversionService {
                   FileManager.default.fileExists(atPath: destination.path),
                   ((try? destination.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) > 0
             else { throw HLSMP4Error.invalidMP4 }
+            if alternateAudioURL != nil {
+                guard !(try await asset.loadTracks(withMediaType: .audio)).isEmpty else {
+                    throw HLSMP4Error.invalidMP4
+                }
+            }
             progress(1)
             return destination
         } catch {
             try? FileManager.default.removeItem(at: destination)
             throw error
+        }
+    }
+
+    private func assemble(_ plan: HLSMediaPlan, at destination: URL,
+                          candidate: UniversalWebMediaCandidate,
+                          session: URLSession,
+                          progress: @escaping @Sendable (Double) -> Void) async throws {
+        switch plan.format {
+        case .ts:
+            try await convertTransportStream(plan, destination: destination,
+                                             candidate: candidate, progress: progress)
+        case .fragmentedMP4:
+            try await writeFragmentedMP4(plan, destination: destination,
+                                         candidate: candidate, session: session,
+                                         progress: progress)
         }
     }
 
