@@ -437,6 +437,9 @@ struct HLSMP4ConversionService {
         let output = try FileHandle(forWritingTo: destination)
         defer { try? output.close() }
         let resources = [initialization] + plan.segments
+        let ranges: [HLSByteRange?] = [plan.initializationRange] + plan.ranges
+        guard resources.count == ranges.count else { throw HLSMP4Error.invalidPlaylist }
+
         for (index, url) in resources.enumerated() {
             try Task.checkCancellation()
             try DownloadStoragePolicy.check()
@@ -446,13 +449,34 @@ struct HLSMP4ConversionService {
                !agent.contains("\n"), !agent.contains("\r") {
                 request.setValue(agent, forHTTPHeaderField: "User-Agent")
             }
+            if let range = ranges[index] {
+                request.setValue("bytes=\(range.offset)-\(range.lastByte)",
+                                 forHTTPHeaderField: "Range")
+                // Never allow a transformed gzip payload to invalidate offsets.
+                request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+            }
             let (temporary, response) = try await session.download(for: request)
             defer { try? FileManager.default.removeItem(at: temporary) }
             guard let http = response as? HTTPURLResponse,
-                  (200...299).contains(http.statusCode),
                   let actual = response.url,
                   (try? HLSPlaylistPlanner.validate(actual)) != nil else {
                 throw HLSMP4Error.unreachableSource
+            }
+            if let range = ranges[index] {
+                let expected = "bytes \(range.offset)-\(range.lastByte)/"
+                guard http.statusCode == 206,
+                      (http.value(forHTTPHeaderField: "Content-Range") ?? "")
+                        .hasPrefix(expected) else {
+                    throw HLSMP4Error.unreachableSource
+                }
+                let length = try temporary.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? -1
+                guard Int64(length) == range.length else {
+                    throw HLSMP4Error.invalidMP4
+                }
+            } else {
+                guard (200...299).contains(http.statusCode) else {
+                    throw HLSMP4Error.unreachableSource
+                }
             }
             let input = try FileHandle(forReadingFrom: temporary)
             defer { try? input.close() }
