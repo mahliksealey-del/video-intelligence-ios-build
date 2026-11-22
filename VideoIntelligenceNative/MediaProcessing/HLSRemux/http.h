@@ -15,6 +15,9 @@ HttpSession *http_session_new(int timeout_ms);
 void         http_session_free(HttpSession *s);
 int          http_session_get(HttpSession *s, const char *url,
                               uint8_t **out_data, size_t *out_size);
+int          http_session_get_range(HttpSession *s, const char *url,
+                                    int64_t offset, int64_t length,
+                                    uint8_t **out_data, size_t *out_size);
 
 /* Prefetch pipeline: download multiple URLs concurrently */
 typedef struct HttpPrefetch HttpPrefetch;
@@ -24,6 +27,8 @@ void          http_prefetch_free(HttpPrefetch *pf);
 
 /* Enqueue a URL for background download. index is a caller-assigned ID. */
 void http_prefetch_enqueue(HttpPrefetch *pf, const char *url, int index);
+void http_prefetch_enqueue_range(HttpPrefetch *pf, const char *url, int index,
+                                  int64_t offset, int64_t length);
 
 /* Get the result for a given index. Blocks until that transfer completes.
    Returns HLS2MP4_OK on success. Caller must free *out_data. */
