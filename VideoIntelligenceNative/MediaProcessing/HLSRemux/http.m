@@ -126,12 +126,16 @@ static NSMutableURLRequest *vi_request(const char *urlText,
 static VIFetchTicket *vi_begin(NSURLSession *session, NSURLRequest *request) {
     if (!session || !request) return nil;
     VIFetchTicket *ticket = [VIFetchTicket new];
+    // Do not create a ticket -> task -> completion-block -> ticket cycle.
+    __weak VIFetchTicket *weakTicket = ticket;
     ticket.task = [session dataTaskWithRequest:request
         completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-            ticket.received = data;
-            ticket.response = response;
-            ticket.error = error;
-            dispatch_semaphore_signal(ticket.done);
+            VIFetchTicket *active = weakTicket;
+            if (!active) return;
+            active.received = data;
+            active.response = response;
+            active.error = error;
+            dispatch_semaphore_signal(active.done);
         }];
     [ticket.task resume];
     return ticket;
