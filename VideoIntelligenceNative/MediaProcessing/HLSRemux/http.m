@@ -66,82 +66,164 @@ void hls_remux_http_set_request_headers(const char *referer, const char *user_ag
     snprintf(vi_user_agent, sizeof(vi_user_agent), "%s", user_agent ? user_agent : "");
 }
 
-static int vi_fetch(const char *urlText, uint8_t **out, size_t *length, int timeoutMS) {
-    if (!urlText || !out || !length || [NSThread isMainThread]) return HLS2MP4_ERR_NETWORK;
-    *out = NULL;
-    *length = 0;
-    @autoreleasepool {
-        NSString *text = [NSString stringWithUTF8String:urlText];
-        if (!text || text.length > 8192) return HLS2MP4_ERR_NETWORK;
-        NSURL *url = [NSURL URLWithString:text];
-        if (!vi_safe_url(url)) return HLS2MP4_ERR_NETWORK;
-        NSTimeInterval seconds = MAX(5.0, MIN(60.0, (double)(timeoutMS ?: 30000) / 1000.0));
-        NSURLSessionConfiguration *cfg = NSURLSessionConfiguration.ephemeralSessionConfiguration;
-        cfg.timeoutIntervalForRequest = seconds;
-        cfg.timeoutIntervalForResource = seconds + 5;
-        cfg.HTTPCookieAcceptPolicy = NSHTTPCookieAcceptPolicyNever;
-        cfg.HTTPShouldSetCookies = NO;
-        cfg.URLCache = nil;
-        NSURLSession *session = [NSURLSession sessionWithConfiguration:cfg
+// One NSURLSession is reused across playlist/key fetches. Prefetched TS
+// segments share a separate NSURLSession and begin before the demuxer needs
+// them. This avoids serial connect/handshake latency (especially over Tor).
+@interface VIFetchTicket : NSObject
+@property(nonatomic, strong) dispatch_semaphore_t done;
+@property(nonatomic, strong) NSURLSessionDataTask *task;
+@property(nonatomic, strong) NSData *received;
+@property(nonatomic, strong) NSURLResponse *response;
+@property(nonatomic, strong) NSError *error;
+@end
+@implementation VIFetchTicket
+- (instancetype)init {
+    if ((self = [super init])) _done = dispatch_semaphore_create(0);
+    return self;
+}
+@end
+
+static NSURLSession *vi_new_session(int timeoutMS, int parallelism) {
+    NSTimeInterval seconds = MAX(5.0, MIN(60.0, (double)(timeoutMS > 0 ? timeoutMS : 30000) / 1000.0));
+    NSURLSessionConfiguration *config = NSURLSessionConfiguration.ephemeralSessionConfiguration;
+    config.timeoutIntervalForRequest = seconds;
+    config.timeoutIntervalForResource = seconds + 8;
+    config.HTTPCookieAcceptPolicy = NSHTTPCookieAcceptPolicyNever;
+    config.HTTPShouldSetCookies = NO;
+    config.URLCache = nil;
+    config.HTTPMaximumConnectionsPerHost = MAX(1, MIN(3, parallelism));
+    return [NSURLSession sessionWithConfiguration:config
             delegate:[VIMediaRedirectGuard new] delegateQueue:nil];
-        dispatch_semaphore_t gate = dispatch_semaphore_create(0);
-        __block NSData *received = nil;
-        __block NSInteger status = 0;
-        NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
-        if (vi_referer[0]) [request setValue:[NSString stringWithUTF8String:vi_referer]
-                            forHTTPHeaderField:@"Referer"];
-        if (vi_user_agent[0]) [request setValue:[NSString stringWithUTF8String:vi_user_agent]
-                               forHTTPHeaderField:@"User-Agent"];
-        NSURLSessionDataTask *task = [session dataTaskWithRequest:request
-            completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-            if (!error && data && [response isKindOfClass:NSHTTPURLResponse.class] &&
-                vi_safe_url(response.URL)) {
-                status = ((NSHTTPURLResponse *)response).statusCode;
-                received = data;
-            }
-            dispatch_semaphore_signal(gate);
+}
+
+static NSMutableURLRequest *vi_request(const char *urlText,
+                                      int64_t start, int64_t length) {
+    if (!urlText) return nil;
+    NSString *text = [NSString stringWithUTF8String:urlText];
+    if (!text || text.length > 8192) return nil;
+    NSURL *url = [NSURL URLWithString:text];
+    if (!vi_safe_url(url)) return nil;
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+    if (vi_referer[0]) {
+        [request setValue:[NSString stringWithUTF8String:vi_referer]
+         forHTTPHeaderField:@"Referer"];
+    }
+    if (vi_user_agent[0]) {
+        [request setValue:[NSString stringWithUTF8String:vi_user_agent]
+         forHTTPHeaderField:@"User-Agent"];
+    }
+    if (length > 0) {
+        if (start < 0 || length > 67108864 || start > INT64_MAX - length)
+            return nil;
+        NSString *value = [NSString stringWithFormat:@"bytes=%lld-%lld",
+                           (long long)start, (long long)(start + length - 1)];
+        [request setValue:value forHTTPHeaderField:@"Range"];
+        [request setValue:@"identity" forHTTPHeaderField:@"Accept-Encoding"];
+    }
+    return request;
+}
+
+static VIFetchTicket *vi_begin(NSURLSession *session, NSURLRequest *request) {
+    if (!session || !request) return nil;
+    VIFetchTicket *ticket = [VIFetchTicket new];
+    ticket.task = [session dataTaskWithRequest:request
+        completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+            ticket.received = data;
+            ticket.response = response;
+            ticket.error = error;
+            dispatch_semaphore_signal(ticket.done);
         }];
-        [task resume];
-        long done = dispatch_semaphore_wait(gate,
-            dispatch_time(DISPATCH_TIME_NOW, (int64_t)((seconds + 8) * NSEC_PER_SEC)));
-        if (done != 0) {
-            [task cancel];
-            [session invalidateAndCancel];
-            return HLS2MP4_ERR_NETWORK;
-        }
-        [session finishTasksAndInvalidate];
-        // Bound individual resources; HLS VOD segments are normally much
-        // smaller than 64 MiB. Never buffer a limitless response in memory.
-        if (status < 200 || status >= 300 || !received ||
-            received.length == 0 || received.length > 64 * 1024 * 1024) {
-            return HLS2MP4_ERR_NETWORK;
-        }
-        uint8_t *bytes = malloc(received.length);
-        if (!bytes) return HLS2MP4_ERR_IO;
-        memcpy(bytes, received.bytes, received.length);
-        *out = bytes;
-        *length = received.length;
-        return HLS2MP4_OK;
+    [ticket.task resume];
+    return ticket;
+}
+
+static int vi_finish(VIFetchTicket *ticket, int timeoutMS,
+                     int64_t start, int64_t length,
+                     uint8_t **out, size_t *size) {
+    if (!ticket || !out || !size || [NSThread isMainThread]) return HLS2MP4_ERR_NETWORK;
+    *out = NULL; *size = 0;
+    NSTimeInterval seconds = MAX(5.0, MIN(60.0, (double)(timeoutMS > 0 ? timeoutMS : 30000) / 1000.0));
+    long done = dispatch_semaphore_wait(ticket.done, dispatch_time(DISPATCH_TIME_NOW,
+                                     (int64_t)((seconds + 10) * NSEC_PER_SEC)));
+    if (done != 0) {
+        [ticket.task cancel];
+        return HLS2MP4_ERR_NETWORK;
+    }
+    NSHTTPURLResponse *response = [ticket.response isKindOfClass:NSHTTPURLResponse.class]
+                                  ? (NSHTTPURLResponse *)ticket.response : nil;
+    NSData *body = ticket.received;
+    if (ticket.error || !response || !vi_safe_url(response.URL) ||
+        !body || body.length == 0 || body.length > 67108864) {
+        return HLS2MP4_ERR_NETWORK;
+    }
+    if (length > 0) {
+        NSString *prefix = [NSString stringWithFormat:@"bytes %lld-%lld/",
+                             (long long)start, (long long)(start + length - 1)];
+        NSString *header = [response valueForHTTPHeaderField:@"Content-Range"];
+        if (response.statusCode != 206 || ![header hasPrefix:prefix] ||
+            (int64_t)body.length != length) return HLS2MP4_ERR_NETWORK;
+    } else if (response.statusCode < 200 || response.statusCode >= 300) {
+        return HLS2MP4_ERR_NETWORK;
+    }
+    uint8_t *bytes = malloc(body.length);
+    if (!bytes) return HLS2MP4_ERR_IO;
+    memcpy(bytes, body.bytes, body.length);
+    *out = bytes;
+    *size = body.length;
+    return HLS2MP4_OK;
+}
+
+static int vi_fetch(NSURLSession *session, const char *url,
+                    int64_t start, int64_t length,
+                    uint8_t **data, size_t *size, int timeoutMS) {
+    @autoreleasepool {
+        NSMutableURLRequest *request = vi_request(url, start, length);
+        VIFetchTicket *ticket = vi_begin(session, request);
+        return vi_finish(ticket, timeoutMS, start, length, data, size);
     }
 }
 
-struct HttpSession { int timeoutMS; };
+struct HttpSession { int timeoutMS; void *session; };
+
 HttpSession *http_session_new(int timeout_ms) {
     HttpSession *s = calloc(1, sizeof(HttpSession));
-    if (s) s->timeoutMS = timeout_ms;
+    if (!s) return NULL;
+    s->timeoutMS = timeout_ms > 0 ? timeout_ms : 30000;
+    NSURLSession *client = vi_new_session(s->timeoutMS, 2);
+    if (!client) { free(s); return NULL; }
+    s->session = (__bridge_retained void *)client;
     return s;
 }
-void http_session_free(HttpSession *s) { free(s); }
-int http_session_get(HttpSession *s, const char *url, uint8_t **data, size_t *size) {
-    return vi_fetch(url, data, size, s ? s->timeoutMS : 30000);
+void http_session_free(HttpSession *s) {
+    if (!s) return;
+    if (s->session) {
+        NSURLSession *client = (__bridge_transfer NSURLSession *)s->session;
+        [client finishTasksAndInvalidate];
+    }
+    free(s);
+}
+int http_session_get_range(HttpSession *s, const char *url,
+                           int64_t start, int64_t length,
+                           uint8_t **data, size_t *size) {
+    if (!s || !s->session) return HLS2MP4_ERR_NETWORK;
+    return vi_fetch((__bridge NSURLSession *)s->session, url,
+                    start, length, data, size, s->timeoutMS);
+}
+int http_session_get(HttpSession *s, const char *url,
+                     uint8_t **data, size_t *size) {
+    return http_session_get_range(s, url, 0, 0, data, size);
 }
 int http_get_memory(const char *url, uint8_t **data, size_t *size, int timeout_ms) {
-    return vi_fetch(url, data, size, timeout_ms);
+    HttpSession *session = http_session_new(timeout_ms);
+    if (!session) return HLS2MP4_ERR_NETWORK;
+    int result = http_session_get(session, url, data, size);
+    http_session_free(session);
+    return result;
 }
 int http_get_file(const char *url, const char *path, int timeout_ms) {
     uint8_t *data = NULL;
     size_t size = 0;
-    int status = vi_fetch(url, &data, &size, timeout_ms);
+    int status = http_get_memory(url, &data, &size, timeout_ms);
     if (status != HLS2MP4_OK) return status;
     FILE *file = fopen(path, "wb");
     if (!file) { free(data); return HLS2MP4_ERR_IO; }
@@ -153,33 +235,58 @@ int http_get_file(const char *url, const char *path, int timeout_ms) {
 
 typedef struct HttpPrefetchEntry {
     int index;
-    char *url;
+    int64_t offset, length;
+    void *ticket;
     struct HttpPrefetchEntry *next;
 } HttpPrefetchEntry;
+
 struct HttpPrefetch {
     int timeoutMS;
+    void *session;
     HttpPrefetchEntry *entries;
 };
-HttpPrefetch *http_prefetch_new(int concurrent, int timeout_ms) {
-    (void)concurrent;
+
+HttpPrefetch *http_prefetch_new(int max_concurrent, int timeout_ms) {
     HttpPrefetch *pf = calloc(1, sizeof(HttpPrefetch));
-    if (pf) pf->timeoutMS = timeout_ms;
+    if (!pf) return NULL;
+    pf->timeoutMS = timeout_ms > 0 ? timeout_ms : 30000;
+    NSURLSession *client = vi_new_session(pf->timeoutMS, max_concurrent);
+    if (!client) { free(pf); return NULL; }
+    pf->session = (__bridge_retained void *)client;
     return pf;
 }
-void http_prefetch_enqueue(HttpPrefetch *pf, const char *url, int index) {
-    if (!pf || !url) return;
-    HttpPrefetchEntry *entry = calloc(1, sizeof(HttpPrefetchEntry));
-    if (!entry) return;
-    entry->index = index;
-    entry->url = strdup(url);
-    entry->next = pf->entries;
-    pf->entries = entry;
+void http_prefetch_enqueue_range(HttpPrefetch *pf, const char *url, int index,
+                                 int64_t start, int64_t length) {
+    if (!pf || !pf->session) return;
+    @autoreleasepool {
+        NSMutableURLRequest *request = vi_request(url, start, length);
+        VIFetchTicket *ticket = vi_begin(
+            (__bridge NSURLSession *)pf->session, request);
+        if (!ticket) return;
+        HttpPrefetchEntry *entry = calloc(1, sizeof(HttpPrefetchEntry));
+        if (!entry) { [ticket.task cancel]; return; }
+        entry->index = index;
+        entry->offset = start;
+        entry->length = length;
+        entry->ticket = (__bridge_retained void *)ticket;
+        entry->next = pf->entries;
+        pf->entries = entry;
+    }
 }
-int http_prefetch_get(HttpPrefetch *pf, int index, uint8_t **data, size_t *size) {
+void http_prefetch_enqueue(HttpPrefetch *pf, const char *url, int index) {
+    http_prefetch_enqueue_range(pf, url, index, 0, 0);
+}
+int http_prefetch_get(HttpPrefetch *pf, int index,
+                      uint8_t **data, size_t *size) {
     if (!pf) return HLS2MP4_ERR_NETWORK;
     for (HttpPrefetchEntry *entry = pf->entries; entry; entry = entry->next) {
-        if (entry->index == index && entry->url)
-            return vi_fetch(entry->url, data, size, pf->timeoutMS);
+        if (entry->index == index && entry->ticket) {
+            @autoreleasepool {
+                return vi_finish((__bridge VIFetchTicket *)entry->ticket,
+                                 pf->timeoutMS, entry->offset, entry->length,
+                                 data, size);
+            }
+        }
     }
     return HLS2MP4_ERR_NETWORK;
 }
@@ -188,9 +295,16 @@ void http_prefetch_free(HttpPrefetch *pf) {
     HttpPrefetchEntry *entry = pf->entries;
     while (entry) {
         HttpPrefetchEntry *next = entry->next;
-        free(entry->url);
+        if (entry->ticket) {
+            VIFetchTicket *ticket = (__bridge_transfer VIFetchTicket *)entry->ticket;
+            [ticket.task cancel]; // No-op for finished requests.
+        }
         free(entry);
         entry = next;
+    }
+    if (pf->session) {
+        NSURLSession *client = (__bridge_transfer NSURLSession *)pf->session;
+        [client invalidateAndCancel];
     }
     free(pf);
 }
