@@ -69,6 +69,7 @@ struct HLSMediaPlan: Equatable, Sendable {
 struct HLSMasterSelection: Equatable {
     let variantURL: URL
     let alternateAudioURL: URL?
+    let expectsAudio: Bool
 }
 
 enum HLSPlaylistPlanner {
@@ -193,7 +194,8 @@ enum HLSPlaylistPlanner {
                     selectedAudio = (options.first(where: \.isDefault) ?? options[0]).url
                 }
                 choices.append((bandwidth, HLSMasterSelection(
-                    variantURL: videoURL, alternateAudioURL: selectedAudio)))
+                    variantURL: videoURL, alternateAudioURL: selectedAudio,
+                    expectsAudio: attribute(attributes, name: "AUDIO") != nil)))
             }
             guard let best = choices.max(by: { $0.bandwidth < $1.bandwidth }) else {
                 throw HLSMP4Error.invalidPlaylist
@@ -308,12 +310,14 @@ struct HLSMP4ConversionService {
         var current = candidate.url
         var selectedPlan: HLSMediaPlan?
         var alternateAudioURL: URL?
+        var expectsAudio = false
         for _ in 0..<3 {
             let (playlist, finalURL) = try await fetchPlaylist(
                 current, candidate: candidate, session: session)
             switch try HLSPlaylistPlanner.parse(playlist, at: finalURL) {
             case .master(let selection):
                 current = selection.variantURL
+                expectsAudio = expectsAudio || selection.expectsAudio
                 if let audio = selection.alternateAudioURL {
                     alternateAudioURL = audio
                 }
@@ -376,7 +380,7 @@ struct HLSMP4ConversionService {
                   FileManager.default.fileExists(atPath: destination.path),
                   ((try? destination.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) > 0
             else { throw HLSMP4Error.invalidMP4 }
-            if alternateAudioURL != nil {
+            if expectsAudio || alternateAudioURL != nil {
                 guard !(try await asset.loadTracks(withMediaType: .audio)).isEmpty else {
                     throw HLSMP4Error.invalidMP4
                 }
