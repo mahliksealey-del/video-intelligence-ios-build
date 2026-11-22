@@ -193,7 +193,8 @@ final class HLSMP4ConversionTests: XCTestCase {
         #EXT-X-ENDLIST
         """
         XCTAssertThrowsError(try HLSPlaylistPlanner.parse(unsupportedDelta, at: base)) { error in
-            XCTAssertEqual(error as? HLSMP4Error, .unsupportedFeatures)
+            XCTAssertEqual(error as? HLSMP4Error,
+                           .specificUnsupported("delta-playlist updates"))
         }
     }
 
