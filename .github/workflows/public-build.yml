@@ -1,7 +1,7 @@
 name: Video Intelligence Public iOS Build
 
 on:
-  # Verify corrected cookie policy and guarded native HLS VOD to MP4 remux for iPhone.
+  # Test HLS alternate audio, RFC byte ranges, actual segment prefetch, and Tor-friendly previews.
   # One-off CI gate for this experimental branch. Only this workflow-file
   # change triggers a push build; ordinary source edits remain manual.
   push:
@@ -21,6 +21,7 @@ on:
       - fix/hls-library-relink-export-2026-11-21
       - fix/hls-playback-export-diagnostics-2026-11-21
       - feature/hls-source-mp4-remux-2026-11-21
+      - fix/hls-redgifs-renditions-browser-speed-2026-11-21
     paths:
       - .github/workflows/public-build.yml
   workflow_dispatch:
@@ -65,6 +66,10 @@ jobs:
       - name: Audit public snapshot disclosure boundary
         shell: bash
         run: bash scripts/audit-public-snapshot.sh
+
+      - name: Execute native HLS byte-range parser regression
+        shell: bash
+        run: bash scripts/test-hls-range-parser.sh
 
       - name: Record toolchain inventory
         shell: bash
