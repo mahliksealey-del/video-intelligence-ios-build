@@ -58,6 +58,22 @@ Direct downloads reject unsafe local-address literals, excessive files, text res
 This native application includes Keraunos-derived GPLv3 components and is distributed under GPLv3. See `LICENSE-GPL-3.0.txt` and `THIRD_PARTY_NOTICES.md` for exact sources, revisions, hashes, and other upstream licenses. Model weights are not vendored.
 
 
+## HLS RedGIFs-format expansion and Tor-responsive browser (2026-11-21)
+
+**Physical iPhone acceptance evidence:** one HLS VOD converted successfully to an MP4 and entered the Download Center as Saved, but the RedGIFs selection failed with the combined unsupported-feature message. Review still plays the original HLS offline package, and attempting to export that package through the source-based path also failed with that same message. The exact unsupported RedGIFs playlist tag was not captured; do not claim a specific one was identified.
+
+**Root cause in our code:** the prototype rejected every master playlist advertising an AUDIO group (even if audio is multiplexed into the selected video and the EXT-X-MEDIA has no URI), rejected all EXT-X-BYTERANGE segments, and rejected low-latency partial hints even if the playlist also provides complete VOD segments. These are valid layouts under RFC 8216. It also used one error string for all those cases.
+
+**Fixes, preserving separate Save Offline and Save MP4:** the Swift manifest parser now parses quoted HLS attributes, audio GROUP-ID/DEFAULT/URI metadata, selects the highest bandwidth variant, and preserves an optional separate audio playlist. An absent audio rendition URI is treated as muxed audio. When separate, the exporter downloads video and one default audio rendition, then combines them via the existing non-reencoding SocialMediaMerger; it verifies both video and audio tracks before saving. The parser accepts explicit and implicit byte ranges only for the same URL and with bounded sizes; fMP4 segment/init requests enforce HTTP 206, Content-Range and expected length, and the C TS demuxer now understands TS byte ranges too. Complete VOD segments can be used even if LL-HLS partial hints are present; live, encrypted/fairplay, discontinuities, skipped delta playlists, unsupported codec/timeline layouts and private URLs are still rejected. No DRM bypass or false success. This is a targeted format expansion, not universal HLS support.
+
+**Performance issue found:** the earlier native HTTP prefetch interface was a queue of URLs that fetched each segment sequentially and constructed a new NSURLSession per segment. The new transport starts a bounded batch of three segment tasks concurrently using a reused ephemeral NSURLSession, transfers the results to the demuxer in order, honors user cancel, and uses only public HTTPS with redirect and byte-range validation. This targets handshake/latency overhead, not video transcoding. No measured wall-clock speedup on real sites yet; Tor VPN will still impose relay latency and exit-node restrictions. Apple's independent Save Offline movpkg path is unchanged.
+
+**Browser low-bandwidth UX:** Website Browser offers Lite Previews, off by default. When enabled it suppresses network poster/AVAssetImageGenerator thumbnail requests; the diagnostic all-stream list also avoids automatic remote thumbnails. Player selection, preview-on-tap, WKWebView, page state, sign-in, Get Video and PiP remain as before. Lite mode does not bypass Tor, strip website assets, or change Orbot VPN settings.
+
+**Verification:** compile and execute a native offline C byte-range fixture on the CI Mac; compile Swift tests with fixtures for no-URI muxed audio, separate default audio rendition, TS/fMP4 byte ranges, invalid implicit offsets and complete VOD with partial hints. No user videos or playlist URLs are committed. Device-check exact RedGIFs video+audio, MP4 playback and Files export, existing direct TikTok/Instagram/YouTube exports, PiP player mapping, browser back/scroll state, Tor browsing with Lite Previews, and previous recovered movpkg library. Freeze only after physical-device result.
+
+References: https://www.rfc-editor.org/rfc/rfc8216.html ; https://orbot.app/ay/faqs/ .
+
 ## HLS VOD to MP4 — source remux experiment (2026-11-21)
 
 **User-verified baseline:** previously missing HLS library media reappeared after container-path recovery; playback and normal TikTok/Instagram/YouTube MP4 exports work; OSStatus -50 disappeared after the audio-session fix. Offline HLS movpkg conversion still fails with AVAssetExportSession. Do not alter that recovered library or existing browser and downloader.
