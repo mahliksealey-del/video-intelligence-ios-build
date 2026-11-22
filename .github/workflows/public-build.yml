@@ -1,7 +1,7 @@
 name: Video Intelligence Public iOS Build
 
 on:
-  # Test HLS alternate audio, RFC byte ranges, actual segment prefetch, and Tor-friendly previews.
+  # Final acceptance snapshot: HLS audio/ranges, network reuse, Lite Previews and throttled UI updates.
   # One-off CI gate for this experimental branch. Only this workflow-file
   # change triggers a push build; ordinary source edits remain manual.
   push:
