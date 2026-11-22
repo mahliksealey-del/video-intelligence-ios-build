@@ -34,17 +34,43 @@ enum HLSMP4Error: LocalizedError, Equatable {
     }
 }
 
+struct HLSByteRange: Equatable, Sendable {
+    let length: Int64
+    let offset: Int64
+
+    var lastByte: Int64 { offset + length - 1 }
+
+    static func parse(_ text: String, implicitOffset: Int64? = nil) throws -> HLSByteRange {
+        let numbers = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(separator: "@", omittingEmptySubsequences: false)
+        guard (1...2).contains(numbers.count),
+              let count = Int64(numbers[0]), (1...67_108_864).contains(count),
+              let offset = numbers.count == 2 ? Int64(numbers[1]) : implicitOffset,
+              offset >= 0, offset <= Int64.max - count else {
+            throw HLSMP4Error.invalidPlaylist
+        }
+        return HLSByteRange(length: count, offset: offset)
+    }
+}
+
 struct HLSMediaPlan: Equatable, Sendable {
     enum Format: Sendable { case ts, fragmentedMP4 }
     let playlistURL: URL
     let segments: [URL]
+    let ranges: [HLSByteRange?]
     let initialization: URL?
+    let initializationRange: HLSByteRange?
     let format: Format
+}
+
+struct HLSMasterSelection: Equatable {
+    let variantURL: URL
+    let alternateAudioURL: URL?
 }
 
 enum HLSPlaylistPlanner {
     enum Result: Equatable {
-        case master(URL)
+        case master(HLSMasterSelection)
         case media(HLSMediaPlan)
     }
 
@@ -71,13 +97,39 @@ enum HLSPlaylistPlanner {
         return url
     }
 
-    static func quotedURI(_ line: String) -> String? {
-        guard let begin = line.range(of: "URI=\"")?.upperBound,
-              let end = line[begin...].firstIndex(of: "\"") else {
-            return nil
+    /// HLS attribute lists contain quoted commas (e.g. CODECS="avc1,mp4a").
+    /// Only split on commas outside double quotes.
+    static func attribute(_ line: String, name: String) -> String? {
+        guard let colon = line.firstIndex(of: ":") else { return nil }
+        var parts: [String] = []
+        var current = ""
+        var quoted = false
+        for c in line[line.index(after: colon)...] {
+            if c == "\"" { quoted.toggle() }
+            if c == "," && !quoted {
+                parts.append(current)
+                current = ""
+            } else {
+                current.append(c)
+            }
         }
-        return String(line[begin..<end])
+        guard !quoted else { return nil }
+        parts.append(current)
+        for part in parts {
+            let value = part.trimmingCharacters(in: .whitespacesAndNewlines)
+            let prefix = name + "="
+            if value.hasPrefix(prefix) {
+                let raw = String(value.dropFirst(prefix.count))
+                if raw.hasPrefix("\"") && raw.hasSuffix("\"") && raw.count >= 2 {
+                    return String(raw.dropFirst().dropLast())
+                }
+                return raw
+            }
+        }
+        return nil
     }
+
+    static func quotedURI(_ line: String) -> String? { attribute(line, name: "URI") }
 
     static func parse(_ source: String, at playlistURL: URL) throws -> Result {
         try validate(playlistURL)
@@ -87,60 +139,92 @@ enum HLSPlaylistPlanner {
         let lines = source.split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         guard lines.first == "#EXTM3U" else { throw HLSMP4Error.invalidPlaylist }
+        // LL-HLS partial segments may accompany complete VOD segments. Ignore
+        // partial hints only when a complete ENDLIST exists. Delta updates,
+        // session encryption and incomplete live playlists are not supported.
         if lines.contains(where: {
-            $0.hasPrefix("#EXT-X-SESSION-KEY") || $0.hasPrefix("#EXT-X-PART:") ||
-            $0.hasPrefix("#EXT-X-PRELOAD-HINT") || $0.hasPrefix("#EXT-X-SKIP:")
-        }) { throw HLSMP4Error.unsupportedFeatures }
-
-        if lines.contains(where: { $0.hasPrefix("#EXT-X-STREAM-INF:") }) {
-            // Do not quietly export a video-only rendition if the master
-            // advertises separate AUDIO tracks. No hidden track loss.
-            if lines.contains(where: { $0.hasPrefix("#EXT-X-MEDIA:TYPE=AUDIO") }) {
-                throw HLSMP4Error.unsupportedFeatures
-            }
-            var choices: [(bandwidth: Int, url: URL)] = []
-            for index in lines.indices where lines[index].hasPrefix("#EXT-X-STREAM-INF:") {
-                guard index + 1 < lines.count else { throw HLSMP4Error.invalidPlaylist }
-                let attributes = lines[index]
-                if attributes.contains("AUDIO=") { throw HLSMP4Error.unsupportedFeatures }
-                guard !lines[index + 1].hasPrefix("#") else {
-                    throw HLSMP4Error.invalidPlaylist
-                }
-                let bandwidth: Int = {
-                    guard let range = attributes.range(of: "BANDWIDTH=") else { return 0 }
-                    let value = attributes[range.upperBound...]
-                    return Int(value.prefix(while: { $0.isNumber })) ?? 0
-                }()
-                choices.append((bandwidth,
-                                try resolve(lines[index + 1], relativeTo: playlistURL)))
-            }
-            guard let choice = choices.max(by: { $0.bandwidth < $1.bandwidth }) else {
-                throw HLSMP4Error.invalidPlaylist
-            }
-            return .master(choice.url)
-        }
-
-        guard lines.contains("#EXT-X-ENDLIST") else { throw HLSMP4Error.liveNotSupported }
-        if lines.contains(where: {
-            $0.hasPrefix("#EXT-X-BYTERANGE") ||
-            $0.hasPrefix("#EXT-X-DISCONTINUITY") ||
+            $0.hasPrefix("#EXT-X-SESSION-KEY") ||
+            $0.hasPrefix("#EXT-X-SKIP:") ||
             $0.hasPrefix("#EXT-X-I-FRAMES-ONLY")
         }) { throw HLSMP4Error.unsupportedFeatures }
 
+        if lines.contains(where: { $0.hasPrefix("#EXT-X-STREAM-INF:") }) {
+            struct AudioOption {
+                let group: String
+                let url: URL?
+                let isDefault: Bool
+            }
+            var audio: [AudioOption] = []
+            for line in lines where line.hasPrefix("#EXT-X-MEDIA:") &&
+                                    attribute(line, name: "TYPE") == "AUDIO" {
+                guard let group = attribute(line, name: "GROUP-ID"), !group.isEmpty else {
+                    throw HLSMP4Error.invalidPlaylist
+                }
+                // URI omitted = audio included in video variant (RFC 8216).
+                let url = try attribute(line, name: "URI").map {
+                    try resolve($0, relativeTo: playlistURL)
+                }
+                audio.append(AudioOption(group: group, url: url,
+                                         isDefault: attribute(line, name: "DEFAULT") == "YES"))
+            }
+
+            var choices: [(bandwidth: Int, selection: HLSMasterSelection)] = []
+            for index in lines.indices where lines[index].hasPrefix("#EXT-X-STREAM-INF:") {
+                guard index + 1 < lines.count,
+                      !lines[index + 1].hasPrefix("#") else {
+                    throw HLSMP4Error.invalidPlaylist
+                }
+                let attributes = lines[index]
+                let bandwidth = Int(attribute(attributes, name: "BANDWIDTH") ?? "") ?? 0
+                let videoURL = try resolve(lines[index + 1], relativeTo: playlistURL)
+                var selectedAudio: URL?
+                if let group = attribute(attributes, name: "AUDIO") {
+                    let options = audio.filter { $0.group == group }
+                    guard !options.isEmpty else { throw HLSMP4Error.invalidPlaylist }
+                    // Prefer explicitly marked default rendition; only one
+                    // alternate track is exported (never silently drop audio).
+                    selectedAudio = (options.first(where: \.isDefault) ?? options[0]).url
+                }
+                choices.append((bandwidth, HLSMasterSelection(
+                    variantURL: videoURL, alternateAudioURL: selectedAudio)))
+            }
+            guard let best = choices.max(by: { $0.bandwidth < $1.bandwidth }) else {
+                throw HLSMP4Error.invalidPlaylist
+            }
+            return .master(best.selection)
+        }
+
+        guard lines.contains("#EXT-X-ENDLIST") else { throw HLSMP4Error.liveNotSupported }
+        if lines.contains(where: { $0.hasPrefix("#EXT-X-DISCONTINUITY") ||
+                                   $0.hasPrefix("#EXT-X-RENDITION-REPORT:") && !$0.contains("LAST-MSN") }) {
+            throw HLSMP4Error.unsupportedFeatures
+        }
+
         var map: URL?
+        var mapRange: HLSByteRange?
         var hasAes128 = false
         var segments: [URL] = []
+        var ranges: [HLSByteRange?] = []
+        var pendingRange: String?
+        var previousURL: URL?
+        var previousRange: HLSByteRange?
         for line in lines {
             if line.hasPrefix("#EXT-X-MAP:") {
-                guard !line.contains("BYTERANGE") else {
-                    throw HLSMP4Error.unsupportedFeatures
-                }
                 guard let value = quotedURI(line) else { throw HLSMP4Error.invalidPlaylist }
                 map = try resolve(value, relativeTo: playlistURL)
+                if let encoded = attribute(line, name: "BYTERANGE") {
+                    mapRange = try HLSByteRange.parse(encoded, implicitOffset: 0)
+                } else {
+                    mapRange = nil
+                }
+            } else if line.hasPrefix("#EXT-X-BYTERANGE:") {
+                guard pendingRange == nil else { throw HLSMP4Error.invalidPlaylist }
+                pendingRange = String(line.dropFirst("#EXT-X-BYTERANGE:".count))
             } else if line.hasPrefix("#EXT-X-KEY:") {
-                if line.contains("METHOD=NONE") { continue }
-                if line.contains("METHOD=AES-128"),
-                   !line.contains("KEYFORMAT=") || line.contains("KEYFORMAT=\"identity\"") {
+                if attribute(line, name: "METHOD") == "NONE" {
+                    hasAes128 = false
+                } else if attribute(line, name: "METHOD") == "AES-128",
+                          (attribute(line, name: "KEYFORMAT") ?? "identity") == "identity" {
                     guard let value = quotedURI(line) else {
                         throw HLSMP4Error.invalidPlaylist
                     }
@@ -149,17 +233,29 @@ enum HLSPlaylistPlanner {
                 } else {
                     throw HLSMP4Error.protectedMedia
                 }
-            } else if !line.hasPrefix("#"), !line.isEmpty {
-                guard segments.count < 10_000 else {
-                    throw HLSMP4Error.unsupportedFeatures
+            } else if !line.hasPrefix("#") && !line.isEmpty {
+                guard segments.count < 10_000 else { throw HLSMP4Error.unsupportedFeatures }
+                let url = try resolve(line, relativeTo: playlistURL)
+                var range: HLSByteRange?
+                if let encoded = pendingRange {
+                    let nextOffset: Int64? = (previousURL == url && previousRange != nil)
+                        ? previousRange!.offset + previousRange!.length : nil
+                    range = try HLSByteRange.parse(encoded, implicitOffset: nextOffset)
                 }
-                segments.append(try resolve(line, relativeTo: playlistURL))
+                segments.append(url)
+                ranges.append(range)
+                previousURL = url
+                previousRange = range
+                pendingRange = nil
             }
         }
-        guard !segments.isEmpty else { throw HLSMP4Error.invalidPlaylist }
+        guard !segments.isEmpty, pendingRange == nil else {
+            throw HLSMP4Error.invalidPlaylist
+        }
         if map != nil && hasAes128 { throw HLSMP4Error.protectedMedia }
         return .media(HLSMediaPlan(
-            playlistURL: playlistURL, segments: segments, initialization: map,
+            playlistURL: playlistURL, segments: segments, ranges: ranges,
+            initialization: map, initializationRange: mapRange,
             format: map == nil ? .ts : .fragmentedMP4))
     }
 }
