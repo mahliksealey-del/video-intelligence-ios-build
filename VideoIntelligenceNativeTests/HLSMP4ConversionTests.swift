@@ -19,6 +19,7 @@ final class HLSMP4ConversionTests: XCTestCase {
         XCTAssertEqual(selected.variantURL.absoluteString,
                        "https://video.example.com/path/high/index.m3u8")
         XCTAssertNil(selected.alternateAudioURL)
+        XCTAssertFalse(selected.expectsAudio)
     }
 
     func testAudioGroupWithoutURIIsMuxedIntoSelectedVariant() throws {
@@ -34,6 +35,7 @@ final class HLSMP4ConversionTests: XCTestCase {
             return XCTFail("Expected master playlist")
         }
         XCTAssertNil(pick.alternateAudioURL)
+        XCTAssertTrue(pick.expectsAudio)
         XCTAssertEqual(pick.variantURL.lastPathComponent, "muxed.m3u8")
     }
 
@@ -51,6 +53,7 @@ final class HLSMP4ConversionTests: XCTestCase {
         XCTAssertEqual(pick.variantURL.lastPathComponent, "high.m3u8")
         XCTAssertEqual(pick.alternateAudioURL?.absoluteString,
                        "https://video.example.com/path/audio/en.m3u8")
+        XCTAssertTrue(pick.expectsAudio)
     }
 
     func testFragmentedMP4ByteRangesAndImplicitOffsets() throws {
