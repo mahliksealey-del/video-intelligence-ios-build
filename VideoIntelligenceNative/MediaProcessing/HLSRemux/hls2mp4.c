@@ -433,8 +433,9 @@ static void key_cache_free(KeyCache *cache)
     }
 }
 
-/* Number of segments to download ahead of the current one being processed */
-#define PREFETCH_AHEAD 4
+/* Native URLSession starts these overlapping tasks immediately, while
+ * maintaining in-order demux. Keep concurrency modest for Tor and A15. */
+#define PREFETCH_AHEAD 2
 
 int hls2mp4_convert(const hls2mp4_options *opts)
 {
@@ -500,6 +501,11 @@ int hls2mp4_convert(const hls2mp4_options *opts)
     }
 
     log_msg(opts, "Playlist has %d segments, VOD=%d", playlist.count, playlist.is_vod);
+    if (!playlist.is_vod || playlist.count <= 0) {
+        m3u8_free(&playlist);
+        http_session_free(session);
+        return HLS2MP4_ERR_PARSE;
+    }
 
     /* Step 2: Open muxer */
     Muxer *muxer = muxer_open(opts->output_path);
@@ -515,10 +521,7 @@ int hls2mp4_convert(const hls2mp4_options *opts)
 
     KeyCache *key_cache = NULL;
 
-    /* Step 3: Process segments with prefetching.
-       We download segments in batches using curl_multi for parallelism.
-       While processing segment i, segments i+1..i+PREFETCH_AHEAD are
-       already downloading in the background. */
+    /* Step 3: Real URLSession prefetching across HTTP segments. */
     int batch_start = 0;
     while (batch_start < playlist.count) {
         int batch_end = batch_start + PREFETCH_AHEAD + 1;
@@ -538,7 +541,9 @@ int hls2mp4_convert(const hls2mp4_options *opts)
 
         /* Enqueue all segments in this batch for parallel download */
         for (int i = batch_start; i < batch_end; i++) {
-            http_prefetch_enqueue(pf, playlist.segments[i].url, i);
+            http_prefetch_enqueue_range(pf, playlist.segments[i].url, i,
+                                        playlist.segments[i].range_start,
+                                        playlist.segments[i].range_length);
         }
 
         /* Process segments in order as their downloads complete */
@@ -566,7 +571,9 @@ int hls2mp4_convert(const hls2mp4_options *opts)
             } else {
                 /* Prefetch failed — retry with session handle */
                 for (int attempt = 0; attempt < max_retries; attempt++) {
-                    ret = http_session_get(session, seg->url, &ts_data, &ts_size);
+                    ret = http_session_get_range(session, seg->url,
+                            seg->range_start, seg->range_length,
+                            &ts_data, &ts_size);
                     if (ret == HLS2MP4_OK) {
                         fetched = 1;
                         break;
