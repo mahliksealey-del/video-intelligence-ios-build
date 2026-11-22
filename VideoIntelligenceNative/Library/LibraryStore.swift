@@ -82,6 +82,9 @@ final class LibraryStore: ObservableObject {
 
     private var browserRequests: [UUID: BrowserDownloadRequest] = [:]
     private var browserTasks: [UUID: Task<Void, Never>] = [:]
+    // Keep download progress updates from constantly rebuilding the browser
+    // sheet/WebKit wrapper while videos are transferring on slow connections.
+    private var lastBrowserProgressRender: [UUID: Date] = [:]
 
     let storage: LibraryStorage
     let modelManager: WhisperModelManager
@@ -375,6 +378,23 @@ final class LibraryStore: ObservableObject {
         mutate(&browserDownloads[index])
     }
 
+    private func updateBrowserProgress(_ id: UUID, value: Double) {
+        guard let index = browserDownloads.firstIndex(where: { $0.id == id }),
+              browserDownloads[index].status == .running else { return }
+        let old = browserDownloads[index].progress
+        let next = max(old, min(0.99, max(0, value)))
+        guard next > old else { return }
+        let now = Date()
+        if next < 0.99,
+           next - old < 0.025,
+           let previous = lastBrowserProgressRender[id],
+           now.timeIntervalSince(previous) < 0.35 {
+            return
+        }
+        lastBrowserProgressRender[id] = now
+        browserDownloads[index].progress = next
+    }
+
     private func pumpBrowserDownloads() {
         while let index = BrowserDownloadQueuePolicy.nextQueuedIndex(
             in: browserDownloads, activeCount: browserTasks.count) {
@@ -406,6 +426,7 @@ final class LibraryStore: ObservableObject {
                 }
                 browserRequests[id] = nil
                 browserTasks[id] = nil
+                lastBrowserProgressRender[id] = nil
                 pumpBrowserDownloads()
             }
         }
@@ -415,11 +436,7 @@ final class LibraryStore: ObservableObject {
                                         id: UUID) async throws -> UUID {
         let onProgress: @Sendable (Double) -> Void = { [weak self] value in
             Task { @MainActor in
-                self?.updateBrowserDownload(id) { job in
-                    if job.status == .running {
-                        job.progress = max(job.progress, min(0.99, max(0, value)))
-                    }
-                }
+                self?.updateBrowserProgress(id, value: value)
             }
         }
         switch request {
