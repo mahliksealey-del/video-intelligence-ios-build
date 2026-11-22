@@ -423,7 +423,7 @@ struct UniversalMediaBrowserView: View {
                                 HStack(spacing: 8) {
                                     BrowserCandidateThumbnail(
                                         candidate: candidate,
-                                        enableRemoteThumbnail: !litePreviews && !showAllDetectedStreams)
+                                        enableRemoteThumbnail: !litePreviews)
                                     VStack(alignment: .leading, spacing: 3) {
                                         Text(!showAllDetectedStreams ? "Selected player · source found" :
                                              candidate.isPlaying ? "Playing now · linked" :
