@@ -89,3 +89,4 @@ VideoIntelligenceNative/MediaProcessing/HLSRemux/muxer.c
 VideoIntelligenceNative/MediaProcessing/HLSRemux/muxer.h
 VideoIntelligenceNative/MediaProcessing/HLSRemux/ts_demux.c
 VideoIntelligenceNative/MediaProcessing/HLSRemux/ts_demux.h
+scripts/test-hls-range-parser.sh
