@@ -1,7 +1,7 @@
 name: Video Intelligence Public iOS Build
 
 on:
-  # Final acceptance snapshot: HLS audio/ranges, network reuse, Lite Previews and throttled UI updates.
+  # Device-test candidate: HLS alternate audio/ranges, bounded prefetch, audio verification, optional Lite Previews.
   # One-off CI gate for this experimental branch. Only this workflow-file
   # change triggers a push build; ordinary source edits remain manual.
   push:
