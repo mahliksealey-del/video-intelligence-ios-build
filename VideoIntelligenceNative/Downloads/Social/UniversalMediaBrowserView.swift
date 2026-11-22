@@ -271,6 +271,7 @@ struct UniversalMediaBrowserView: View {
     @State private var isInspecting = false
     @State private var scanNonce: String?
     @AppStorage("VIWebsiteAdBlockingEnabled") private var blockAds = true
+    @AppStorage("VIBrowserLitePreviewsEnabled") private var litePreviews = false
     @State private var stayOnSite = false
     @State private var showDownloads = false
     @State private var previewStream: BrowserMediaPreview?
@@ -356,6 +357,17 @@ struct UniversalMediaBrowserView: View {
                     Toggle("Block Ads", isOn: $blockAds)
                     Toggle("Stay on Site", isOn: $stayOnSite)
                 }.font(.caption).padding(.horizontal)
+                HStack(spacing: 8) {
+                    Toggle("Lite Previews", isOn: $litePreviews)
+                        .fixedSize()
+                    Spacer(minLength: 4)
+                    Text(litePreviews
+                        ? "Extra thumbnails off · best for Tor"
+                        : "Fewer requests with Lite Previews")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+                .font(.caption)
+                .padding(.horizontal)
                 HStack {
                     Button { showDownloads = true } label: {
                         Label("Downloads (\(activeBrowserDownloadCount))", systemImage: "arrow.down.circle")
@@ -409,7 +421,9 @@ struct UniversalMediaBrowserView: View {
                         LazyVStack(alignment: .leading, spacing: 8) {
                             ForEach(displayedCandidates) { candidate in
                                 HStack(spacing: 8) {
-                                    BrowserCandidateThumbnail(candidate: candidate)
+                                    BrowserCandidateThumbnail(
+                                        candidate: candidate,
+                                        enableRemoteThumbnail: !litePreviews && !showAllDetectedStreams)
                                     VStack(alignment: .leading, spacing: 3) {
                                         Text(!showAllDetectedStreams ? "Selected player · source found" :
                                              candidate.isPlaying ? "Playing now · linked" :
@@ -729,12 +743,13 @@ private struct BrowserSourcePreviewSheet: View {
 
 private struct BrowserCandidateThumbnail: View {
     let candidate: UniversalWebMediaCandidate
+    let enableRemoteThumbnail: Bool
     @State private var generated: UIImage?
 
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 8).fill(.thinMaterial)
-            if let poster = candidate.posterURL {
+            if enableRemoteThumbnail, let poster = candidate.posterURL {
                 AsyncImage(url: poster) { phase in
                     if case .success(let image) = phase {
                         image.resizable().scaledToFill()
@@ -743,7 +758,7 @@ private struct BrowserCandidateThumbnail: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-            } else if let generated {
+            } else if enableRemoteThumbnail, let generated {
                 Image(uiImage: generated).resizable().scaledToFill()
             } else {
                 Image(systemName: "play.rectangle")
@@ -753,9 +768,9 @@ private struct BrowserCandidateThumbnail: View {
         .frame(width: 62, height: 72).clipShape(RoundedRectangle(cornerRadius: 8))
         .accessibilityLabel(candidate.posterURL != nil || generated != nil
                             ? "Source video thumbnail" : "Thumbnail unavailable")
-        .task(id: candidate.id) {
+        .task(id: candidate.id + (enableRemoteThumbnail ? ":on" : ":off")) {
             generated = nil
-            guard candidate.posterURL == nil,
+            guard enableRemoteThumbnail, candidate.posterURL == nil,
                   candidate.kind == .direct || candidate.kind == .hls else { return }
             // Apple's native generator supports regular file video and HLS
             // streams that provide compatible I-frame renditions. If the
