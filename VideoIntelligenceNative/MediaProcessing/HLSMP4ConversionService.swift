@@ -8,6 +8,7 @@ import Foundation
 enum HLSMP4Error: LocalizedError, Equatable {
     case unsafeSource, invalidPlaylist, liveNotSupported, protectedMedia
     case unsupportedFeatures, unsupportedFormat, unreachableSource
+    case specificUnsupported(String)
     case invalidMP4, conversionFailed(Int32)
 
     var errorDescription: String? {
@@ -21,7 +22,9 @@ enum HLSMP4Error: LocalizedError, Equatable {
         case .protectedMedia:
             return "This stream uses protected media or an unsupported encryption format. DRM cannot be converted."
         case .unsupportedFeatures:
-            return "This HLS playlist uses alternate audio, byte ranges or low-latency features that this converter does not support yet."
+            return "This HLS playlist uses a format or timeline feature this converter cannot safely process."
+        case .specificUnsupported(let detail):
+            return "Unsupported HLS feature: \(detail). No original media was changed."
         case .unsupportedFormat:
             return "This HLS source uses a video/audio format the on-device remuxer cannot handle."
         case .unreachableSource:
@@ -142,11 +145,15 @@ enum HLSPlaylistPlanner {
         // LL-HLS partial segments may accompany complete VOD segments. Ignore
         // partial hints only when a complete ENDLIST exists. Delta updates,
         // session encryption and incomplete live playlists are not supported.
-        if lines.contains(where: {
-            $0.hasPrefix("#EXT-X-SESSION-KEY") ||
-            $0.hasPrefix("#EXT-X-SKIP:") ||
-            $0.hasPrefix("#EXT-X-I-FRAMES-ONLY")
-        }) { throw HLSMP4Error.unsupportedFeatures }
+        if lines.contains(where: { $0.hasPrefix("#EXT-X-SESSION-KEY") }) {
+            throw HLSMP4Error.protectedMedia
+        }
+        if lines.contains(where: { $0.hasPrefix("#EXT-X-SKIP:") }) {
+            throw HLSMP4Error.specificUnsupported("delta-playlist updates")
+        }
+        if lines.contains(where: { $0.hasPrefix("#EXT-X-I-FRAMES-ONLY") }) {
+            throw HLSMP4Error.specificUnsupported("I-frame-only trick-play rendition")
+        }
 
         if lines.contains(where: { $0.hasPrefix("#EXT-X-STREAM-INF:") }) {
             struct AudioOption {
@@ -195,9 +202,8 @@ enum HLSPlaylistPlanner {
         }
 
         guard lines.contains("#EXT-X-ENDLIST") else { throw HLSMP4Error.liveNotSupported }
-        if lines.contains(where: { $0.hasPrefix("#EXT-X-DISCONTINUITY") ||
-                                   $0.hasPrefix("#EXT-X-RENDITION-REPORT:") && !$0.contains("LAST-MSN") }) {
-            throw HLSMP4Error.unsupportedFeatures
+        if lines.contains("#EXT-X-DISCONTINUITY") {
+            throw HLSMP4Error.specificUnsupported("media timeline discontinuities")
         }
 
         var map: URL?
@@ -222,7 +228,7 @@ enum HLSPlaylistPlanner {
                 pendingRange = String(line.dropFirst("#EXT-X-BYTERANGE:".count))
             } else if line.hasPrefix("#EXT-X-KEY:") {
                 if attribute(line, name: "METHOD") == "NONE" {
-                    hasAes128 = false
+                    // Keep evidence of any *earlier* encrypted segments.
                 } else if attribute(line, name: "METHOD") == "AES-128",
                           (attribute(line, name: "KEYFORMAT") ?? "identity") == "identity" {
                     guard let value = quotedURI(line) else {
