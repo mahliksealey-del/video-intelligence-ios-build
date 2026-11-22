@@ -2,6 +2,8 @@
 #include "hls2mp4.h"
 
 #include <ctype.h>
+#include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -127,6 +129,36 @@ static int extract_bandwidth(const char *line)
     return atoi(bw_str);
 }
 
+
+/* RFC 8216 EXT-X-BYTERANGE: n[@o]. Implicit offsets may follow only
+ * a previous byte range of the same URI. Bound each segment to 64 MiB. */
+static int parse_range(const char *spec, int64_t previous_end,
+                       int can_implicit, int64_t *start, int64_t *length)
+{
+    if (!spec || !*spec) return -1;
+    errno = 0;
+    char *end = NULL;
+    long long count = strtoll(spec, &end, 10);
+    if (errno || end == spec || count <= 0 || count > 67108864LL) return -1;
+    int64_t offset = -1;
+    if (*end == '@') {
+        errno = 0;
+        char *after = NULL;
+        long long explicit_offset = strtoll(end + 1, &after, 10);
+        if (errno || after == end + 1 || *after ||
+            explicit_offset < 0) return -1;
+        offset = (int64_t)explicit_offset;
+    } else if (!*end && can_implicit) {
+        offset = previous_end;
+    } else {
+        return -1;
+    }
+    if (offset < 0 || offset > INT64_MAX - count) return -1;
+    *start = offset;
+    *length = count;
+    return 0;
+}
+
 int m3u8_parse(const char *data, size_t size, const char *base_url, M3U8Playlist *out)
 {
     if (!data || !out)
@@ -221,6 +253,10 @@ int m3u8_parse(const char *data, size_t size, const char *base_url, M3U8Playlist
     float next_duration = 0.0f;
     int media_sequence = 0;
     int seg_index = 0;
+    char pending_range[128] = {0};
+    char previous_url[2048] = {0};
+    int64_t previous_end = 0;
+    int previous_had_range = 0;
 
     char *line = buf;
     while (line && *line) {
@@ -256,6 +292,13 @@ int m3u8_parse(const char *data, size_t size, const char *base_url, M3U8Playlist
                 cur_key_url[0] = '\0';
                 cur_has_iv = 0;
             }
+        } else if (strncmp(line, "#EXT-X-BYTERANGE:", 17) == 0) {
+            if (pending_range[0] || strlen(line + 17) >= sizeof(pending_range)) {
+                m3u8_free(out);
+                free(buf);
+                return HLS2MP4_ERR_PARSE;
+            }
+            snprintf(pending_range, sizeof(pending_range), "%s", line + 17);
         } else if (strncmp(line, "#EXTINF:", 8) == 0) {
             next_duration = (float)atof(line + 8);
         } else if (strncmp(line, "#EXT-X-ENDLIST", 14) == 0) {
@@ -277,6 +320,22 @@ int m3u8_parse(const char *data, size_t size, const char *base_url, M3U8Playlist
             resolve_url(base_url, line, seg->url, sizeof(seg->url));
             seg->duration = next_duration;
             next_duration = 0.0f;
+            if (pending_range[0]) {
+                int same_uri = previous_had_range &&
+                    strcmp(previous_url, seg->url) == 0;
+                if (parse_range(pending_range, previous_end, same_uri,
+                                &seg->range_start, &seg->range_length) != 0) {
+                    m3u8_free(out);
+                    free(buf);
+                    return HLS2MP4_ERR_PARSE;
+                }
+                previous_end = seg->range_start + seg->range_length;
+                previous_had_range = 1;
+                pending_range[0] = ' ';
+            } else {
+                previous_had_range = 0;
+            }
+            snprintf(previous_url, sizeof(previous_url), "%s", seg->url);
 
             if (cur_key_url[0]) {
                 snprintf(seg->key_url, sizeof(seg->key_url), "%s", cur_key_url);
